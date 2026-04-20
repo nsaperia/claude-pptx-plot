@@ -560,10 +560,18 @@ const SPLIT_RIGHT = { x: 7.4,  y: 2.3, w: 5.3, h: 4.3 };
   // Geometry note: pptxgenjs doughnut starts at 12 o'clock and sweeps
   // clockwise. We compute (dx, dy) = (sin θ, -cos θ) · r to find the
   // midline of each slice in slide coords.
+  //
+  // labelR is tuned by eye to land on the ring midline for this specific
+  // chart footprint (6.5 × 4.4). pptxgenjs pads the chart area variably
+  // depending on legend/title state, so there's no clean formula —
+  // empirical tuning is the reliable path. If the chart footprint
+  // changes materially, retune.
   {
     const cx = SPLIT_LEFT.x + SPLIT_LEFT.w / 2;
-    const cy = SPLIT_LEFT.y + SPLIT_LEFT.h / 2;
-    const labelR = 1.35;   // midline between outer radius and the 65% hole
+    // Slight downward bias: pptxgenjs tends to add top padding even when
+    // showTitle is false, shifting the visual center down ~0.15".
+    const cy = SPLIT_LEFT.y + SPLIT_LEFT.h / 2 + 0.1;
+    const labelR = 1.1;
     const total = donutSlices.reduce((s, sl) => s + sl.value, 0);
     let cumAngle = 0;
     donutSlices.forEach((sl) => {
@@ -574,8 +582,8 @@ const SPLIT_RIGHT = { x: 7.4,  y: 2.3, w: 5.3, h: 4.3 };
       const dy = -Math.cos(rad) * labelR;
       const pct = Math.round((sl.value / total) * 100);
       s.addText(`${pct}%`, {
-        x: cx + dx - 0.5, y: cy + dy - 0.2, w: 1.0, h: 0.4,
-        fontFace: t.fonts.DISPLAY, fontSize: 18, bold: false,
+        x: cx + dx - 0.5, y: cy + dy - 0.15, w: 1.0, h: 0.3,
+        fontFace: t.fonts.DISPLAY, fontSize: 14, bold: true,
         color: sl.textColor,
         align: "center", valign: "middle", margin: 0,
       });
