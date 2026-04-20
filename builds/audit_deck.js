@@ -540,8 +540,11 @@ const SPLIT_RIGHT = { x: 7.4,  y: 2.3, w: 5.3, h: 4.3 };
       x: SPLIT_LEFT.x, y: SPLIT_LEFT.y, w: SPLIT_LEFT.w, h: SPLIT_LEFT.h,
       chartColors: [t.colors.STEEL, t.colors.LBLUE, t.colors.BERRY],
       showLegend: false,
-      dataLabelFontFace: t.fonts.SANS, dataLabelFontSize: 10, dataLabelColor: t.colors.INK,
-      showPercent: true,
+      // Native data labels turned OFF — right column carries the readout.
+      // Native donut labels sit inside the slice at a fixed size and are
+      // hard to style against a warm background; offloading to text
+      // blocks gives proper typographic control.
+      showValue: false, showPercent: false, showCategoryName: false,
       holeSize: 65,
       plotArea:  { fill: { color: t.colors.BG } },
       chartArea: { fill: { color: t.colors.BG } },
@@ -637,45 +640,30 @@ const SPLIT_RIGHT = { x: 7.4,  y: 2.3, w: 5.3, h: 4.3 };
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// SLIDE 10 — Radar, native
+// SLIDE 10 — Radar, native (simple)
 // ══════════════════════════════════════════════════════════════════════
+// Replaces the round-2 three-axis normalized radar, which degenerated to
+// a triangle with one practice collapsing to a spike. Six time-points
+// (every other year) gives a proper radar shape; $M values share a single
+// scale so no normalization distortion.
 {
   const s = pres.addSlide();
   header(s,
     "RADAR CHART  ·  NATIVE",
-    "Different shapes, same book.",
-    "Three practices mapped across three normalized dimensions. Native radar handles this cleanly when axes are on a shared scale."
+    "Three practices, three different trajectories.",
+    "Six time-points on six axes (every other year, 2025 to 2035). Revenue in $M — one shared scale, no normalization. Native handles multi-series radar when axes share units."
   );
 
-  // Normalize 2025 Rev, 2035 Rev, and 10-yr CAGR to 0-100 per axis.
-  const strategyRev  = [deckData.practiceYear.Strategy[0]   / 1e6, deckData.practiceYear.Strategy[10]   / 1e6];
-  const opsRev       = [deckData.practiceYear.Operations[0] / 1e6, deckData.practiceYear.Operations[10] / 1e6];
-  const techRev      = [deckData.practiceYear.Technology[0] / 1e6, deckData.practiceYear.Technology[10] / 1e6];
-  const cagr = ([a, b]) => (Math.pow(b / a, 1 / 10) - 1) * 100;
-  const raw = {
-    Strategy:   { rev25: strategyRev[0], rev35: strategyRev[1], cagr: cagr(strategyRev) },
-    Operations: { rev25: opsRev[0],      rev35: opsRev[1],      cagr: cagr(opsRev) },
-    Technology: { rev25: techRev[0],     rev35: techRev[1],     cagr: cagr(techRev) },
-  };
-  const norm = (v, arr) => {
-    const mn = Math.min(...arr), mx = Math.max(...arr);
-    return +((v - mn) / (mx - mn) * 100).toFixed(0);
-  };
-  const rev25s = [raw.Strategy.rev25, raw.Operations.rev25, raw.Technology.rev25];
-  const rev35s = [raw.Strategy.rev35, raw.Operations.rev35, raw.Technology.rev35];
-  const cagrs  = [raw.Strategy.cagr,  raw.Operations.cagr,  raw.Technology.cagr];
-  const axes = ["2025 Rev", "2035 Rev", "10Y CAGR"];
-  const series = ["Strategy", "Operations", "Technology"].map((name) => ({
+  const radarYears = ["2025", "2027", "2029", "2031", "2033", "2035"];
+  const radarIdx   = [0, 2, 4, 6, 8, 10];   // indexes into practiceYear arrays
+  const seriesAt = (name) => ({
     name,
-    labels: axes,
-    values: [
-      norm(raw[name].rev25, rev25s),
-      norm(raw[name].rev35, rev35s),
-      norm(raw[name].cagr,  cagrs),
-    ],
-  }));
+    labels: radarYears,
+    values: radarIdx.map((i) => +(deckData.practiceYear[name][i] / 1e6).toFixed(2)),
+  });
+  const radarSeries = [seriesAt("Strategy"), seriesAt("Operations"), seriesAt("Technology")];
 
-  s.addChart(pres.ChartType.radar, series, {
+  s.addChart(pres.ChartType.radar, radarSeries, {
     x: SPLIT_LEFT.x, y: SPLIT_LEFT.y, w: SPLIT_LEFT.w, h: SPLIT_LEFT.h,
     chartColors: [t.colors.STEEL, t.colors.LBLUE, t.colors.BERRY],
     radarStyle: "standard",
@@ -684,12 +672,14 @@ const SPLIT_RIGHT = { x: 7.4,  y: 2.3, w: 5.3, h: 4.3 };
     legendFontSize: 10, legendFontFace: t.fonts.SANS, legendColor: t.colors.MUTED,
     catAxisLabelFontFace: t.fonts.SANS, catAxisLabelFontSize: 10, catAxisLabelColor: t.colors.MUTED,
     valAxisLabelFontFace: t.fonts.SANS, valAxisLabelFontSize: 9,  valAxisLabelColor: t.colors.MUTED,
+    valAxisMinVal: 0, valAxisMaxVal: 22,
+    valAxisLabelFormatCode: "$0\"M\"",
     valGridLine: { color: t.colors.RULE, style: "solid", size: 0.4 },
     plotArea:  { fill: { color: t.colors.BG } },
     chartArea: { fill: { color: t.colors.BG } },
   });
 
-  // Right column — interpretation
+  // Right column — interpretation (updated for the time-radar narrative)
   const rx = SPLIT_RIGHT.x;
   const ry = SPLIT_RIGHT.y;
   const rw = SPLIT_RIGHT.w;
@@ -698,9 +688,9 @@ const SPLIT_RIGHT = { x: 7.4,  y: 2.3, w: 5.3, h: 4.3 };
   addInkUnderscore(s, t, rx, ry + 0.3, 1.5);
 
   const notes = [
-    { color: t.colors.STEEL, name: "Strategy",   body: "Largest in 2025, smallest in 2035. Slowest CAGR. A cyclical anchor, not a growth engine." },
-    { color: t.colors.LBLUE, name: "Operations", body: "Smallest 2025 start for its eventual size. Strongest 2035 total — the balanced leader." },
-    { color: t.colors.BERRY, name: "Technology", body: "Smallest start, fastest CAGR. The growth story; still #2 by revenue in 2035." },
+    { color: t.colors.STEEL, name: "Strategy",   body: "Tightest shape. Shallow dip in 2027, steady climb after. Least cyclical." },
+    { color: t.colors.LBLUE, name: "Operations", body: "Deepest dent in 2029, then the biggest snap-back — ends largest in 2035." },
+    { color: t.colors.BERRY, name: "Technology", body: "Grew through every year, downturn included. The most counter-cyclical practice." },
   ];
   let y = ry + 0.95;
   notes.forEach((n) => {
@@ -716,6 +706,328 @@ const SPLIT_RIGHT = { x: 7.4,  y: 2.3, w: 5.3, h: 4.3 };
       margin: 0, valign: "top", lineSpacing: 14,
     });
     y += 1.15;
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//
+//                     ROUND 3 · STRESS-TEST SLIDES
+//
+// One stress-test per native chart type. Simple versions (above) show
+// native handling the easy case; stress-tests show where native's
+// ceiling is — combo charts, per-series styling, multi-point data,
+// filled overlays. Together they give the scorecard forensic evidence
+// at two complexity tiers.
+//
+// ══════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════
+// SLIDE 11 — Line, stress-test (dual-axis combo)
+// ══════════════════════════════════════════════════════════════════════
+{
+  const s = pres.addSlide();
+  header(s,
+    "LINE CHART  ·  STRESS-TEST (DUAL-AXIS COMBO)",
+    "Revenue bars, EBITDA % line, secondary axis.",
+    "Multi-type chart: native pptxgenjs pres.ChartType has no 'combo' — you pass an array of typed blocks. Each block has its own options. Tests secondary axis, per-series styling, legend mixing."
+  );
+
+  const comboData = [
+    {
+      type: pres.ChartType.bar,
+      data: [{
+        name: "Revenue ($M)",
+        labels: years,
+        values: deckData.annual.map((r) => +(r.revenue / 1e6).toFixed(1)),
+      }],
+      options: { barDir: "col", chartColors: [t.colors.STEEL] },
+    },
+    {
+      type: pres.ChartType.line,
+      data: [{
+        name: "EBITDA %",
+        labels: years,
+        values: deckData.annual.map((r) => +(r.ebitdaPct * 100).toFixed(1)),
+      }],
+      options: {
+        chartColors: [t.colors.BERRY],
+        secondaryValAxis: true, secondaryCatAxis: true,
+        lineSize: 2.5, lineDataSymbol: "circle", lineDataSymbolSize: 7,
+      },
+    },
+  ];
+
+  s.addChart(comboData, {
+    x: WIDE_POS.x, y: WIDE_POS.y, w: WIDE_POS.w, h: WIDE_POS.h,
+    showLegend: true, legendPos: "b",
+    legendFontSize: 10, legendFontFace: t.fonts.SANS, legendColor: t.colors.MUTED,
+    catAxisLabelFontFace: t.fonts.SANS, catAxisLabelFontSize: 10, catAxisLabelColor: t.colors.MUTED,
+    valAxes: [
+      {
+        showValAxisTitle: true, valAxisTitle: "Revenue ($M)",
+        valAxisTitleFontFace: t.fonts.SANS, valAxisTitleFontSize: 10, valAxisTitleColor: t.colors.MUTED,
+        valAxisLabelFontFace: t.fonts.SANS, valAxisLabelFontSize: 10, valAxisLabelColor: t.colors.MUTED,
+        valAxisLabelFormatCode: "$0\"M\"",
+        valGridLine: { color: t.colors.RULE, style: "solid", size: 0.5 },
+      },
+      {
+        showValAxisTitle: true, valAxisTitle: "EBITDA %",
+        valAxisTitleFontFace: t.fonts.SANS, valAxisTitleFontSize: 10, valAxisTitleColor: t.colors.MUTED,
+        valAxisLabelFontFace: t.fonts.SANS, valAxisLabelFontSize: 10, valAxisLabelColor: t.colors.MUTED,
+        valAxisLabelFormatCode: "0\"%\"",
+        valGridLine: { style: "none" },
+        valAxisMinVal: 0, valAxisMaxVal: 40,
+      },
+    ],
+    catAxes: [
+      { catAxisLabelFontFace: t.fonts.SANS, catAxisLabelFontSize: 10, catAxisLabelColor: t.colors.MUTED },
+      { catAxisHidden: true },
+    ],
+    plotArea:  { fill: { color: t.colors.BG } },
+    chartArea: { fill: { color: t.colors.BG } },
+    barGapWidthPct: 55,
+  });
+
+  s.addText(
+    "Combo charts are where native shines — secondary axis, mixed bar + line, per-series styling all work in one addChart call.",
+    {
+      x: MARGIN, y: 6.75, w: SLIDE_W - 2 * MARGIN, h: 0.32,
+      fontFace: t.fonts.DISPLAY, fontSize: 12, italic: true, color: t.colors.INK,
+      valign: "top", margin: 0,
+    }
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SLIDE 12 — Donut, stress-test (2025 vs 2035 comparison)
+// ══════════════════════════════════════════════════════════════════════
+{
+  const s = pres.addSlide();
+  header(s,
+    "DONUT CHART  ·  STRESS-TEST (COMPARISON)",
+    "Practice mix, ten years apart.",
+    "Two donuts, same color mapping, different years. Tests whether two instances of native addChart can be visually locked together. Center callouts added as overlays — native donuts have no center text option."
+  );
+
+  const mixAt = (idx) => ({
+    Strategy:   +(deckData.practiceYear.Strategy[idx]   / 1e6).toFixed(2),
+    Operations: +(deckData.practiceYear.Operations[idx] / 1e6).toFixed(2),
+    Technology: +(deckData.practiceYear.Technology[idx] / 1e6).toFixed(2),
+  });
+  const mix2025 = mixAt(0);
+  const mix2035x = mixAt(10);
+  const total = (m) => +(m.Strategy + m.Operations + m.Technology).toFixed(2);
+
+  // Two chart positions, side by side
+  const CHART_H = 3.8;
+  const CHART_W = 4.5;
+  const Y = 2.4;
+  const X1 = 1.0;
+  const X2 = SLIDE_W - 1.0 - CHART_W;
+  const CAPTIONS = [
+    { x: X1, title: "2025",     total: total(mix2025), mix: mix2025  },
+    { x: X2, title: "2035",     total: total(mix2035x), mix: mix2035x },
+  ];
+
+  CAPTIONS.forEach((c) => {
+    s.addChart(
+      pres.ChartType.doughnut,
+      [{
+        name: `Revenue mix ${c.title}`,
+        labels: ["Strategy", "Operations", "Technology"],
+        values: [c.mix.Strategy, c.mix.Operations, c.mix.Technology],
+      }],
+      {
+        x: c.x, y: Y, w: CHART_W, h: CHART_H,
+        chartColors: [t.colors.STEEL, t.colors.LBLUE, t.colors.BERRY],
+        showLegend: false,
+        showValue: false, showPercent: false, showCategoryName: false,
+        holeSize: 65,
+        plotArea:  { fill: { color: t.colors.BG } },
+        chartArea: { fill: { color: t.colors.BG } },
+      }
+    );
+
+    // Year label under each donut
+    s.addText(c.title, {
+      x: c.x, y: Y + CHART_H + 0.05, w: CHART_W, h: 0.4,
+      fontFace: t.fonts.DISPLAY, fontSize: 20, color: t.colors.INK,
+      align: "center", valign: "top", margin: 0,
+    });
+    // Total at center of donut (since native donuts can't do center text)
+    s.addText(`$${c.total.toFixed(1)}M`, {
+      x: c.x, y: Y + CHART_H / 2 - 0.18, w: CHART_W, h: 0.4,
+      fontFace: t.fonts.DISPLAY, fontSize: 18, bold: false, color: t.colors.INK,
+      align: "center", valign: "middle", margin: 0,
+    });
+  });
+
+  // Middle "→" connector + shift narrative between the two donuts
+  const midX = (X1 + CHART_W + X2) / 2;
+  s.addText("→", {
+    x: midX - 0.4, y: Y + CHART_H / 2 - 0.3, w: 0.8, h: 0.6,
+    fontFace: t.fonts.DISPLAY, fontSize: 36, color: t.colors.MUTED,
+    align: "center", valign: "middle", margin: 0,
+  });
+
+  s.addText(
+    "Strategy went from 38% of revenue to 31%; Operations grew to the #1 share; Technology more than tripled in dollars.",
+    {
+      x: MARGIN, y: 6.75, w: SLIDE_W - 2 * MARGIN, h: 0.32,
+      fontFace: t.fonts.DISPLAY, fontSize: 12, italic: true, color: t.colors.INK,
+      valign: "top", margin: 0,
+    }
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SLIDE 13 — Scatter, stress-test (phased multi-series)
+// ══════════════════════════════════════════════════════════════════════
+{
+  const s = pres.addSlide();
+  header(s,
+    "SCATTER PLOT  ·  STRESS-TEST (PHASED MULTI-SERIES)",
+    "Revenue vs EBITDA $, colored by phase.",
+    "Four series (setup, compression, recovery, scale) sharing one x-axis. Tests pptxgenjs scatter's null-padding pattern for multi-series with non-overlapping x values."
+  );
+
+  // Phase classification (same as build_showcase)
+  const phaseOf = (year) => {
+    if (year === 2025) return "setup";
+    if (year >= 2026 && year <= 2029) return "compression";
+    if (year >= 2030 && year <= 2031) return "recovery";
+    return "scale";
+  };
+  const phases = ["setup", "compression", "recovery", "scale"];
+  const phaseColorsMap = {
+    setup:       t.colors.MUTED,
+    compression: t.colors.BERRY,
+    recovery:    t.colors.SLATE,
+    scale:       t.colors.STEEL,
+  };
+
+  // Data: x = revenue $M, y = ebitda $M per year
+  const rows = deckData.annual.map((r) => ({
+    year: r.year,
+    rev: +(r.revenue / 1e6).toFixed(2),
+    eb:  +(r.ebitdaPct * r.revenue / 1e6).toFixed(2),
+    phase: phaseOf(r.year),
+  }));
+
+  // pptxgenjs scatter shape: [{name:"X-Axis", values:[...]}, {name:"Series", values:[...]}].
+  // Multi-series with different x-values use null padding.
+  const scatterData = [
+    { name: "Revenue ($M)", values: rows.map((r) => r.rev) },
+  ];
+  phases.forEach((p) => {
+    scatterData.push({
+      name: p.charAt(0).toUpperCase() + p.slice(1),
+      values: rows.map((r) => (r.phase === p ? r.eb : null)),
+    });
+  });
+
+  s.addChart(pres.ChartType.scatter, scatterData, {
+    x: WIDE_POS.x, y: WIDE_POS.y, w: WIDE_POS.w, h: WIDE_POS.h,
+    chartColors: phases.map((p) => phaseColorsMap[p]),
+    lineSize: 0,
+    lineDataSymbol: "circle", lineDataSymbolSize: 11,
+    lineDataSymbolLineSize: 1,
+    showLegend: true, legendPos: "b",
+    legendFontSize: 10, legendFontFace: t.fonts.SANS, legendColor: t.colors.MUTED,
+    showValAxisTitle: true, valAxisTitle: "EBITDA ($M)",
+    showCatAxisTitle: true, catAxisTitle: "Revenue ($M)",
+    valAxisTitleFontFace: t.fonts.SANS, valAxisTitleFontSize: 10, valAxisTitleColor: t.colors.MUTED,
+    catAxisTitleFontFace: t.fonts.SANS, catAxisTitleFontSize: 10, catAxisTitleColor: t.colors.MUTED,
+    valAxisLabelFormatCode: "$0\"M\"",
+    catAxisLabelFormatCode: "$0\"M\"",
+    valAxisMinVal: 0, valAxisMaxVal: 18,
+    catAxisMinVal: 20, catAxisMaxVal: 60,
+    valAxisLabelFontFace: t.fonts.SANS, valAxisLabelFontSize: 10, valAxisLabelColor: t.colors.MUTED,
+    catAxisLabelFontFace: t.fonts.SANS, catAxisLabelFontSize: 10, catAxisLabelColor: t.colors.MUTED,
+    valGridLine: { color: t.colors.RULE, style: "solid", size: 0.5 },
+    catGridLine: { color: t.colors.RULE, style: "solid", size: 0.5 },
+    plotArea:  { fill: { color: t.colors.BG } },
+    chartArea: { fill: { color: t.colors.BG } },
+  });
+
+  s.addText(
+    "Compression years sit in the bottom-left cluster. Scale years walk up the diagonal. Phase coloring surfaces structure the simple scatter hides.",
+    {
+      x: MARGIN, y: 6.75, w: SLIDE_W - 2 * MARGIN, h: 0.32,
+      fontFace: t.fonts.DISPLAY, fontSize: 12, italic: true, color: t.colors.INK,
+      valign: "top", margin: 0,
+    }
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SLIDE 14 — Radar, stress-test (filled + many axes)
+// ══════════════════════════════════════════════════════════════════════
+{
+  const s = pres.addSlide();
+  header(s,
+    "RADAR CHART  ·  STRESS-TEST (FILLED OVERLAY)",
+    "Same three practices, filled regions.",
+    "radarStyle = 'filled' with transparency so all three practices read as overlapping shapes. Tests multi-series overlay legibility and whether native radar respects alpha."
+  );
+
+  const radarYears = ["2025", "2027", "2029", "2031", "2033", "2035"];
+  const radarIdx   = [0, 2, 4, 6, 8, 10];
+  const seriesAt = (name) => ({
+    name,
+    labels: radarYears,
+    values: radarIdx.map((i) => +(deckData.practiceYear[name][i] / 1e6).toFixed(2)),
+  });
+  const radarSeries = [seriesAt("Strategy"), seriesAt("Operations"), seriesAt("Technology")];
+
+  s.addChart(pres.ChartType.radar, radarSeries, {
+    x: SPLIT_LEFT.x, y: SPLIT_LEFT.y, w: SPLIT_LEFT.w, h: SPLIT_LEFT.h,
+    chartColors: [t.colors.STEEL, t.colors.LBLUE, t.colors.BERRY],
+    chartColorsOpacity: 25,
+    radarStyle: "filled",
+    lineSize: 1.5,
+    showLegend: true, legendPos: "b",
+    legendFontSize: 10, legendFontFace: t.fonts.SANS, legendColor: t.colors.MUTED,
+    catAxisLabelFontFace: t.fonts.SANS, catAxisLabelFontSize: 10, catAxisLabelColor: t.colors.MUTED,
+    valAxisLabelFontFace: t.fonts.SANS, valAxisLabelFontSize: 9, valAxisLabelColor: t.colors.MUTED,
+    valAxisMinVal: 0, valAxisMaxVal: 22,
+    valAxisLabelFormatCode: "$0\"M\"",
+    valGridLine: { color: t.colors.RULE, style: "solid", size: 0.4 },
+    plotArea:  { fill: { color: t.colors.BG } },
+    chartArea: { fill: { color: t.colors.BG } },
+  });
+
+  // Right column — what the filled overlay reveals that the line-only didn't
+  const rx = SPLIT_RIGHT.x;
+  const ry = SPLIT_RIGHT.y;
+  const rw = SPLIT_RIGHT.w;
+
+  addEyebrow(s, t, "WHAT THE FILL REVEALS", rx, ry, rw);
+  addInkUnderscore(s, t, rx, ry + 0.3, 1.5);
+
+  s.addText(
+    "Filled overlay makes the area under each practice's shape comparable at a glance. Where line-only emphasizes trajectory, filled emphasizes cumulative footprint.",
+    {
+      x: rx, y: ry + 0.6, w: rw, h: 1.2,
+      fontFace: t.fonts.DISPLAY, fontSize: 12, italic: true, color: t.colors.MUTED,
+      margin: 0, valign: "top", lineSpacing: 15,
+    }
+  );
+
+  s.addText(
+    "Native ceiling shows here: three filled regions on six axes fight for legibility. At four-plus series, filled radar stops scaling.",
+    {
+      x: rx, y: ry + 2.0, w: rw, h: 1.2,
+      fontFace: t.fonts.DISPLAY, fontSize: 12, italic: true, color: t.colors.INK,
+      margin: 0, valign: "top", lineSpacing: 15,
+    }
+  );
+
+  addHairline(s, t, ry + 3.5, { x: rx, w: rw });
+  s.addText("native limit: no per-axis scale, no conditional fill.", {
+    x: rx, y: ry + 3.6, w: rw, h: 0.3,
+    fontFace: t.fonts.SANS, fontSize: 10, color: t.colors.MUTED, italic: true,
+    valign: "top", margin: 0,
   });
 }
 
