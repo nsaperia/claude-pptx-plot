@@ -329,16 +329,41 @@ class PlotContext {
     }
   }
 
-  // ── chartWrap: position a native addChart inside the plot rect ───────
-  // chartType: a pres.ChartType value (string). data: pptxgenjs chart data.
-  // Extra options are passed through; x/y/w/h are derived from plotRect().
-  // Used by approaches A and B in the audit deck.
-  chartWrap(chartType, data, options = {}) {
+  // ── Grid (horizontal or vertical lines at data-space tick values) ────
+  // grid({ y: [ticks], x: [ticks], color, width, transparency, skipFirst })
+  // `skipFirst: true` (default) suppresses the line at the first tick, so
+  // the baseline isn't double-drawn over the frame / x-axis.
+  grid(opts = {}) {
+    const t = this.theme;
+    const {
+      y: yTicks, x: xTicks,
+      color = "RULE", width = 0.4, transparency = 40,
+      skipFirst = true,
+    } = opts;
+    const col = resolveColor(t, color);
     const r = this.plotRect();
-    this.slide.addChart(chartType, data, {
-      x: r.x, y: r.y, w: r.w, h: r.h,
-      ...options,
-    });
+
+    if (yTicks) {
+      const ticks = skipFirst ? yTicks.slice(1) : yTicks;
+      ticks.forEach((v) => {
+        const sy = this.yToSlide(v);
+        this.slide.addShape("line", {
+          x: r.x, y: sy, w: r.w, h: 0,
+          line: { color: col, width, transparency },
+        });
+      });
+    }
+
+    if (xTicks) {
+      const ticks = skipFirst ? xTicks.slice(1) : xTicks;
+      ticks.forEach((v) => {
+        const sx = this.xToSlide(v);
+        this.slide.addShape("line", {
+          x: sx, y: r.y, w: 0, h: r.h,
+          line: { color: col, width, transparency },
+        });
+      });
+    }
   }
 }
 

@@ -195,15 +195,7 @@ walk.push({
     },
   });
 
-  // Horizontal gridlines at each y-tick (behind bars)
-  COL_Y_TICKS.slice(1).forEach((v) => {
-    const y = plot.yToSlide(v);
-    const r = plot.plotRect();
-    s.addShape("line", {
-      x: r.x, y, w: r.w, h: 0,
-      line: { color: t.colors.RULE, width: 0.4, transparency: 40 },
-    });
-  });
+  plot.grid({ y: COL_Y_TICKS });
 
   // Bars
   revenueM.forEach((rev, i) => {
@@ -393,15 +385,7 @@ walk.push({
     },
   });
 
-  // Gridlines
-  WF_Y_TICKS.slice(1).forEach((v) => {
-    const y = plot.yToSlide(v);
-    const r = plot.plotRect();
-    s.addShape("line", {
-      x: r.x, y, w: r.w, h: 0,
-      line: { color: t.colors.RULE, width: 0.4, transparency: 40 },
-    });
-  });
+  plot.grid({ y: WF_Y_TICKS });
 
   // Connectors (drawn first so bars sit on top)
   for (let i = 0; i < walk.length - 1; i++) {
@@ -462,6 +446,276 @@ walk.push({
   ], {
     x: MARGIN, y: 6.75, w: SLIDE_W - 2 * MARGIN, h: 0.32,
     fontFace: t.fonts.DISPLAY, fontSize: 12, italic: true, valign: "top", margin: 0,
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//
+//                      ROUND 2 · NATIVE-ONLY SLIDES
+//
+//  Four additional chart types, one native slide each. Following the
+//  Column + Waterfall round, user verdict locked in native as the default
+//  and shape-based as the escape hatch. These four chart types show
+//  native handling the job — no A/B/C comparison needed.
+//
+// ══════════════════════════════════════════════════════════════════════
+
+// Shared content region for Line / Scatter (wide) and Pie / Radar (split).
+const WIDE_POS  = { x: 0.7, y: 2.2, w: SLIDE_W - 1.4, h: 4.4 };
+const SPLIT_LEFT  = { x: 0.7,  y: 2.2, w: 6.5, h: 4.4 };
+const SPLIT_RIGHT = { x: 7.4,  y: 2.3, w: 5.3, h: 4.3 };
+
+// ══════════════════════════════════════════════════════════════════════
+// SLIDE 7 — Line, native
+// ══════════════════════════════════════════════════════════════════════
+{
+  const s = pres.addSlide();
+  header(s,
+    "LINE CHART  ·  NATIVE",
+    "EBITDA % compressed, then snapped back.",
+    "Native pptxgenjs line chart. Saperia palette, axes, gridlines. Callout highlights the trough. No overlay — native handles this type cleanly."
+  );
+
+  s.addChart(
+    pres.ChartType.line,
+    [{
+      name: "EBITDA %",
+      labels: years,
+      values: deckData.annual.map((r) => +(r.ebitdaPct * 100).toFixed(1)),
+    }],
+    {
+      x: WIDE_POS.x, y: WIDE_POS.y, w: WIDE_POS.w, h: WIDE_POS.h,
+      chartColors: [t.colors.STEEL],
+      lineSize: 2.5, lineDataSymbol: "circle", lineDataSymbolSize: 7,
+      showLegend: false,
+      showValAxisTitle: true, valAxisTitle: "EBITDA %",
+      valAxisTitleFontFace: t.fonts.SANS, valAxisTitleFontSize: 10, valAxisTitleColor: t.colors.MUTED,
+      valAxisLabelFormatCode: "0\"%\"",
+      valAxisMinVal: 10, valAxisMaxVal: 35,
+      catAxisLabelFontFace: t.fonts.SANS, catAxisLabelFontSize: 10, catAxisLabelColor: t.colors.MUTED,
+      valAxisLabelFontFace: t.fonts.SANS, valAxisLabelFontSize: 10, valAxisLabelColor: t.colors.MUTED,
+      valGridLine: { color: t.colors.RULE, style: "solid", size: 0.5 },
+      plotArea:  { fill: { color: t.colors.BG } },
+      chartArea: { fill: { color: t.colors.BG } },
+    }
+  );
+
+  s.addText([
+    { text: "2029 trough: ",                options: { color: t.colors.INK } },
+    { text: "15.3%",                         options: { color: t.colors.INK, highlight: t.colors.LIME, bold: true } },
+    { text: " — a 12-point compression from 2025. Back to 33% by 2030.", options: { color: t.colors.INK } },
+  ], {
+    x: MARGIN, y: 6.75, w: SLIDE_W - 2 * MARGIN, h: 0.32,
+    fontFace: t.fonts.DISPLAY, fontSize: 12, italic: true, valign: "top", margin: 0,
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SLIDE 8 — Pie / Donut, native
+// ══════════════════════════════════════════════════════════════════════
+{
+  const s = pres.addSlide();
+  header(s,
+    "DONUT CHART  ·  NATIVE",
+    "Three practices, split close to thirds by 2035.",
+    "Native pptxgenjs doughnut. Text callouts on the right replace native labels (the common native weakness)."
+  );
+
+  // 2035 revenue by practice ($M)
+  const mix2035 = {
+    Strategy:   +(deckData.practiceYear.Strategy[10]   / 1e6).toFixed(2),
+    Operations: +(deckData.practiceYear.Operations[10] / 1e6).toFixed(2),
+    Technology: +(deckData.practiceYear.Technology[10] / 1e6).toFixed(2),
+  };
+  const total2035 = +(mix2035.Strategy + mix2035.Operations + mix2035.Technology).toFixed(2);
+
+  s.addChart(
+    pres.ChartType.doughnut,
+    [{
+      name: "Revenue mix",
+      labels: ["Strategy", "Operations", "Technology"],
+      values: [mix2035.Strategy, mix2035.Operations, mix2035.Technology],
+    }],
+    {
+      x: SPLIT_LEFT.x, y: SPLIT_LEFT.y, w: SPLIT_LEFT.w, h: SPLIT_LEFT.h,
+      chartColors: [t.colors.STEEL, t.colors.LBLUE, t.colors.BERRY],
+      showLegend: false,
+      dataLabelFontFace: t.fonts.SANS, dataLabelFontSize: 10, dataLabelColor: t.colors.INK,
+      showPercent: true,
+      holeSize: 65,
+      plotArea:  { fill: { color: t.colors.BG } },
+      chartArea: { fill: { color: t.colors.BG } },
+    }
+  );
+
+  // Right column — textual callouts replace native legend
+  const rx = SPLIT_RIGHT.x;
+  const ry = SPLIT_RIGHT.y;
+  const rw = SPLIT_RIGHT.w;
+
+  addEyebrow(s, t, "2035 TOTAL", rx, ry, rw);
+  addInkUnderscore(s, t, rx, ry + 0.3, 1.5);
+  s.addText(`$${total2035.toFixed(1)}M`, {
+    x: rx, y: ry + 0.4, w: rw, h: 0.9,
+    fontFace: t.fonts.DISPLAY, fontSize: 44, color: t.colors.INK, margin: 0, valign: "top",
+  });
+
+  const rows = [
+    { name: "Operations", value: mix2035.Operations, color: t.colors.LBLUE, note: "Leader by 2035" },
+    { name: "Technology", value: mix2035.Technology, color: t.colors.BERRY, note: "Fastest grower" },
+    { name: "Strategy",   value: mix2035.Strategy,   color: t.colors.STEEL, note: "Cyclical anchor" },
+  ];
+  let y = ry + 1.6;
+  rows.forEach((r) => {
+    s.addShape("rect", { x: rx, y: y + 0.08, w: 0.14, h: 0.14, fill: { color: r.color }, line: { type: "none" } });
+    s.addText(r.name, {
+      x: rx + 0.3, y, w: rw - 0.3, h: 0.28,
+      fontFace: t.fonts.SANS, fontSize: 11, bold: true, color: t.colors.INK,
+      charSpacing: 1, valign: "top", margin: 0,
+    });
+    s.addText(`$${r.value.toFixed(1)}M  ·  ${((r.value / total2035) * 100).toFixed(0)}%`, {
+      x: rx + 0.3, y: y + 0.28, w: rw - 0.3, h: 0.28,
+      fontFace: t.fonts.DISPLAY, fontSize: 12, color: t.colors.INK, margin: 0, valign: "top",
+    });
+    s.addText(r.note, {
+      x: rx + 0.3, y: y + 0.55, w: rw - 0.3, h: 0.3,
+      fontFace: t.fonts.DISPLAY, fontSize: 11, italic: true, color: t.colors.MUTED,
+      margin: 0, valign: "top",
+    });
+    y += 1.0;
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SLIDE 9 — Scatter (non-bubble), native
+// ══════════════════════════════════════════════════════════════════════
+{
+  const s = pres.addSlide();
+  header(s,
+    "SCATTER PLOT  ·  NATIVE",
+    "Utilization predicts EBITDA margin.",
+    "Native pptxgenjs scatter chart (non-bubble). 11 years of (util, EBITDA %) points. Native handles scatter when sizing uniformity is fine."
+  );
+
+  // pptxgenjs scatter format: [{ name:"X", values:[...] }, { name:"Y1", values:[...] }]
+  const scatterData = [
+    { name: "Utilization %",  values: deckData.annual.map((r) => +(r.util * 100).toFixed(1)) },
+    { name: "EBITDA %",       values: deckData.annual.map((r) => +(r.ebitdaPct * 100).toFixed(1)) },
+  ];
+
+  s.addChart(pres.ChartType.scatter, scatterData, {
+    x: WIDE_POS.x, y: WIDE_POS.y, w: WIDE_POS.w, h: WIDE_POS.h,
+    chartColors: [t.colors.STEEL],
+    lineSize: 0,                          // scatter = dots only, no connecting line
+    lineDataSymbol: "circle", lineDataSymbolSize: 9,
+    lineDataSymbolLineColor: t.colors.STEEL, lineDataSymbolLineSize: 1,
+    showLegend: false,
+    showValAxisTitle: true, valAxisTitle: "EBITDA %",
+    showCatAxisTitle: true, catAxisTitle: "Utilization %",
+    valAxisTitleFontFace: t.fonts.SANS, valAxisTitleFontSize: 10, valAxisTitleColor: t.colors.MUTED,
+    catAxisTitleFontFace: t.fonts.SANS, catAxisTitleFontSize: 10, catAxisTitleColor: t.colors.MUTED,
+    valAxisLabelFormatCode: "0\"%\"",
+    catAxisLabelFormatCode: "0\"%\"",
+    valAxisMinVal: 10, valAxisMaxVal: 35,
+    catAxisMinVal: 55, catAxisMaxVal: 80,
+    valAxisLabelFontFace: t.fonts.SANS, valAxisLabelFontSize: 10, valAxisLabelColor: t.colors.MUTED,
+    catAxisLabelFontFace: t.fonts.SANS, catAxisLabelFontSize: 10, catAxisLabelColor: t.colors.MUTED,
+    valGridLine: { color: t.colors.RULE, style: "solid", size: 0.5 },
+    catGridLine: { color: t.colors.RULE, style: "solid", size: 0.5 },
+    plotArea:  { fill: { color: t.colors.BG } },
+    chartArea: { fill: { color: t.colors.BG } },
+  });
+
+  s.addText(
+    "Positive slope: every 10 utilization points ≈ +7 points of EBITDA. Pricing alone never closed the gap.",
+    {
+      x: MARGIN, y: 6.75, w: SLIDE_W - 2 * MARGIN, h: 0.32,
+      fontFace: t.fonts.DISPLAY, fontSize: 12, italic: true, color: t.colors.INK,
+      valign: "top", margin: 0,
+    }
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SLIDE 10 — Radar, native
+// ══════════════════════════════════════════════════════════════════════
+{
+  const s = pres.addSlide();
+  header(s,
+    "RADAR CHART  ·  NATIVE",
+    "Different shapes, same book.",
+    "Three practices mapped across three normalized dimensions. Native radar handles this cleanly when axes are on a shared scale."
+  );
+
+  // Normalize 2025 Rev, 2035 Rev, and 10-yr CAGR to 0-100 per axis.
+  const strategyRev  = [deckData.practiceYear.Strategy[0]   / 1e6, deckData.practiceYear.Strategy[10]   / 1e6];
+  const opsRev       = [deckData.practiceYear.Operations[0] / 1e6, deckData.practiceYear.Operations[10] / 1e6];
+  const techRev      = [deckData.practiceYear.Technology[0] / 1e6, deckData.practiceYear.Technology[10] / 1e6];
+  const cagr = ([a, b]) => (Math.pow(b / a, 1 / 10) - 1) * 100;
+  const raw = {
+    Strategy:   { rev25: strategyRev[0], rev35: strategyRev[1], cagr: cagr(strategyRev) },
+    Operations: { rev25: opsRev[0],      rev35: opsRev[1],      cagr: cagr(opsRev) },
+    Technology: { rev25: techRev[0],     rev35: techRev[1],     cagr: cagr(techRev) },
+  };
+  const norm = (v, arr) => {
+    const mn = Math.min(...arr), mx = Math.max(...arr);
+    return +((v - mn) / (mx - mn) * 100).toFixed(0);
+  };
+  const rev25s = [raw.Strategy.rev25, raw.Operations.rev25, raw.Technology.rev25];
+  const rev35s = [raw.Strategy.rev35, raw.Operations.rev35, raw.Technology.rev35];
+  const cagrs  = [raw.Strategy.cagr,  raw.Operations.cagr,  raw.Technology.cagr];
+  const axes = ["2025 Rev", "2035 Rev", "10Y CAGR"];
+  const series = ["Strategy", "Operations", "Technology"].map((name) => ({
+    name,
+    labels: axes,
+    values: [
+      norm(raw[name].rev25, rev25s),
+      norm(raw[name].rev35, rev35s),
+      norm(raw[name].cagr,  cagrs),
+    ],
+  }));
+
+  s.addChart(pres.ChartType.radar, series, {
+    x: SPLIT_LEFT.x, y: SPLIT_LEFT.y, w: SPLIT_LEFT.w, h: SPLIT_LEFT.h,
+    chartColors: [t.colors.STEEL, t.colors.LBLUE, t.colors.BERRY],
+    radarStyle: "standard",
+    lineSize: 2.5,
+    showLegend: true, legendPos: "b",
+    legendFontSize: 10, legendFontFace: t.fonts.SANS, legendColor: t.colors.MUTED,
+    catAxisLabelFontFace: t.fonts.SANS, catAxisLabelFontSize: 10, catAxisLabelColor: t.colors.MUTED,
+    valAxisLabelFontFace: t.fonts.SANS, valAxisLabelFontSize: 9,  valAxisLabelColor: t.colors.MUTED,
+    valGridLine: { color: t.colors.RULE, style: "solid", size: 0.4 },
+    plotArea:  { fill: { color: t.colors.BG } },
+    chartArea: { fill: { color: t.colors.BG } },
+  });
+
+  // Right column — interpretation
+  const rx = SPLIT_RIGHT.x;
+  const ry = SPLIT_RIGHT.y;
+  const rw = SPLIT_RIGHT.w;
+
+  addEyebrow(s, t, "READ THE SHAPES", rx, ry, rw);
+  addInkUnderscore(s, t, rx, ry + 0.3, 1.5);
+
+  const notes = [
+    { color: t.colors.STEEL, name: "Strategy",   body: "Largest in 2025, smallest in 2035. Slowest CAGR. A cyclical anchor, not a growth engine." },
+    { color: t.colors.LBLUE, name: "Operations", body: "Smallest 2025 start for its eventual size. Strongest 2035 total — the balanced leader." },
+    { color: t.colors.BERRY, name: "Technology", body: "Smallest start, fastest CAGR. The growth story; still #2 by revenue in 2035." },
+  ];
+  let y = ry + 0.95;
+  notes.forEach((n) => {
+    s.addShape("rect", { x: rx, y: y + 0.08, w: 0.14, h: 0.14, fill: { color: n.color }, line: { type: "none" } });
+    s.addText(n.name, {
+      x: rx + 0.3, y, w: rw - 0.3, h: 0.28,
+      fontFace: t.fonts.SANS, fontSize: 11, bold: true, color: t.colors.INK,
+      charSpacing: 1, valign: "top", margin: 0,
+    });
+    s.addText(n.body, {
+      x: rx + 0.3, y: y + 0.28, w: rw - 0.3, h: 0.9,
+      fontFace: t.fonts.DISPLAY, fontSize: 11, italic: true, color: t.colors.MUTED,
+      margin: 0, valign: "top", lineSpacing: 14,
+    });
+    y += 1.15;
   });
 }
 
