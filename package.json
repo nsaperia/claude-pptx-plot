@@ -1,0 +1,15 @@
+{
+  "name": "claude-pptx-plot",
+  "version": "0.1.0",
+  "description": "Shape-based PPTX chart primitives for pptxgenjs. Treats PPT as a positioning engine so Claude can produce visually-perfect editable deliverables at scale.",
+  "main": "src/index.js",
+  "scripts": {
+    "smoke": "node tests/smoke.js"
+  },
+  "author": "Saperia Consulting LLC",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "pptxgenjs": "^3.12.0"
+  }
+}
