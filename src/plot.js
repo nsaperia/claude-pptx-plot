@@ -552,6 +552,335 @@ function drawTreemap(opts = {}) {
   });
 }
 
+// ── Sankey (shape-based, straight-sided ribbons) ──────────────────────
+// Two-column flow: one source → N targets. No node rebalancing; source is
+// a single stack, targets are stacked in order. Ribbons are straight-sided
+// trapezoids (no Bézier curves — pptxgenjs addShape has no curve path).
+//
+// opts:
+//   slide, theme                required
+//   source     { label, value }  single source
+//   targets    [{ label, value, color? }]  sums should ≈ source.value
+//   position   { x, y, w, h }   bounding region
+//   nodeWidth  inches (default 0.6) — width of source/target blocks
+//   colors     fallback palette tokens (defaults to variety)
+//
+function drawSankey(opts = {}) {
+  const {
+    slide, theme: t, source, targets, position,
+    nodeWidth = 0.6,
+    colors = ["STEEL", "LBLUE", "BERRY", "SLATE"],
+  } = opts;
+
+  if (!slide || !t || !source || !targets || !position) {
+    throw new Error("drawSankey: slide, theme, source, targets, position are required");
+  }
+
+  const totalTarget = targets.reduce((sum, tg) => sum + tg.value, 0);
+  const total = Math.max(source.value, totalTarget);
+
+  const srcX = position.x;
+  const tgtX = position.x + position.w - nodeWidth;
+
+  const srcH = position.h * (source.value / total);
+  const srcY = position.y + (position.h - srcH) / 2;
+
+  // Source node
+  slide.addShape("rect", {
+    x: srcX, y: srcY, w: nodeWidth, h: srcH,
+    fill: { color: resolveColor(t, "INK") },
+    line: { type: "none" },
+  });
+  slide.addText([
+    { text: source.label,                            options: { color: t.colors.WHITE, bold: true } },
+    { text: `\n$${source.value.toFixed(1)}M`,        options: { color: t.colors.WHITE } },
+  ], {
+    x: srcX - 0.1, y: srcY, w: nodeWidth + 0.2, h: srcH,
+    fontFace: t.fonts.SANS, fontSize: 10,
+    align: "center", valign: "middle", margin: 0,
+  });
+
+  // Target nodes stacked vertically, total height proportional to totalTarget
+  const targetsH = position.h * (totalTarget / total);
+  let targetY = position.y + (position.h - targetsH) / 2;
+  const targetRects = [];
+  targets.forEach((tg, i) => {
+    const h = targetsH * (tg.value / totalTarget);
+    const col = resolveColor(t, tg.color || colors[i % colors.length]);
+    slide.addShape("rect", {
+      x: tgtX, y: targetY, w: nodeWidth, h,
+      fill: { color: col },
+      line: { type: "none" },
+    });
+    slide.addText([
+      { text: tg.label,                     options: { color: t.colors.WHITE, bold: true } },
+      { text: `\n$${tg.value.toFixed(1)}M`, options: { color: t.colors.WHITE } },
+    ], {
+      x: tgtX - 0.3, y: targetY, w: nodeWidth + 0.6, h,
+      fontFace: t.fonts.SANS, fontSize: 10,
+      align: "center", valign: "middle", margin: 0,
+    });
+    targetRects.push({ y: targetY, h, color: col });
+    targetY += h;
+  });
+
+  // Ribbons — each target's share of the source as a trapezoid
+  // connecting the source slice to the target rect.
+  let sliceStartY = srcY;
+  targets.forEach((tg, i) => {
+    const sliceH = srcH * (tg.value / totalTarget);
+    const tgt = targetRects[i];
+
+    // Use a 4-sided freeform polygon via `custGeom` — but pptxgenjs doesn't
+    // expose that directly. Fall back to a filled parallelogram
+    // approximation: draw the ribbon as two triangles + a rect, or just
+    // as a single "trapezoid" preset rotated.
+    //
+    // Cleanest: two triangles sharing a shared edge, mid-x between src
+    // and target. This reads like a curved ribbon when drawn thin.
+    //
+    // Pragmatic: use a single 4-sided polygon via the pptxgenjs
+    // freeform shape — `addShape("pie", ...)` won't work. Use
+    // addShape("rect", ...) with rotate? No — rotation of axis-aligned
+    // rect still produces a rotated rect, not a trapezoid.
+    //
+    // Working approach: draw the ribbon as a series of thin horizontal
+    // rectangles stepped from source-y to target-y (stair-stepped
+    // polygon approximation). Ugly up close; OK at slide scale.
+    const steps = 40;
+    const stepW = (tgtX - (srcX + nodeWidth)) / steps;
+    for (let k = 0; k < steps; k++) {
+      const frac = k / steps;
+      const fracNext = (k + 1) / steps;
+      // Linear interpolation of top and bottom edges from source to target
+      const topY    = sliceStartY + (tgt.y - sliceStartY) * frac;
+      const botY    = (sliceStartY + sliceH) + ((tgt.y + tgt.h) - (sliceStartY + sliceH)) * frac;
+      const topYNext = sliceStartY + (tgt.y - sliceStartY) * fracNext;
+      const botYNext = (sliceStartY + sliceH) + ((tgt.y + tgt.h) - (sliceStartY + sliceH)) * fracNext;
+      const ribbonX  = srcX + nodeWidth + k * stepW;
+      const avgTopY  = (topY + topYNext) / 2;
+      const avgBotY  = (botY + botYNext) / 2;
+      slide.addShape("rect", {
+        x: ribbonX,
+        y: avgTopY,
+        w: stepW + 0.01,   // slight overlap avoids BG seams between strips
+        h: avgBotY - avgTopY,
+        fill: { color: tgt.color, transparency: 55 },
+        line: { type: "none" },
+      });
+    }
+    sliceStartY += sliceH;
+  });
+}
+
+// ── Heatmap (shape-based grid with interpolated cell fills) ───────────
+// opts:
+//   slide, theme                required
+//   data       2D array [rows][cols]
+//   rowLabels  array of row labels (length = rows)
+//   colLabels  array of col labels (length = cols)
+//   position   { x, y, w, h }  — includes space for labels
+//   colorFrom  token for low end (default "BG_RAISED")
+//   colorTo    token for high end (default "STEEL")
+//   domain     [min, max] — defaults to data min/max
+//   labelCells bool, default true — print value in each cell
+//
+function drawHeatmap(opts = {}) {
+  const {
+    slide, theme: t, data, rowLabels, colLabels, position,
+    colorFrom = "BG_RAISED", colorTo = "STEEL",
+    domain,
+    labelCells = true,
+    valueFormat = (v) => v.toFixed(1),
+  } = opts;
+
+  if (!slide || !t || !data || !position) {
+    throw new Error("drawHeatmap: slide, theme, data, position are required");
+  }
+
+  const rows = data.length;
+  const cols = data[0].length;
+
+  const labelW = 1.1;    // left gutter for row labels
+  const labelH = 0.28;   // top strip for col labels
+  const cellX0 = position.x + labelW;
+  const cellY0 = position.y + labelH;
+  const cellW  = (position.w - labelW) / cols;
+  const cellH  = (position.h - labelH) / rows;
+
+  // Flatten values to compute domain
+  const allVals = data.flat();
+  const [vMin, vMax] = domain || [Math.min(...allVals), Math.max(...allVals)];
+
+  const fromRGB = hexToRgb(resolveColor(t, colorFrom));
+  const toRGB   = hexToRgb(resolveColor(t, colorTo));
+
+  // Column labels
+  if (colLabels) {
+    colLabels.forEach((lbl, c) => {
+      slide.addText(String(lbl), {
+        x: cellX0 + c * cellW, y: position.y, w: cellW, h: labelH,
+        fontFace: t.fonts.SANS, fontSize: 9, color: t.colors.MUTED,
+        align: "center", valign: "bottom", margin: 0,
+      });
+    });
+  }
+
+  // Row labels + cells
+  data.forEach((row, r) => {
+    if (rowLabels) {
+      slide.addText(String(rowLabels[r]), {
+        x: position.x, y: cellY0 + r * cellH, w: labelW - 0.1, h: cellH,
+        fontFace: t.fonts.SANS, fontSize: 10, bold: true, color: t.colors.INK,
+        align: "right", valign: "middle", margin: 0,
+      });
+    }
+    row.forEach((v, c) => {
+      const norm = vMax === vMin ? 0 : (v - vMin) / (vMax - vMin);
+      const rgb = [
+        Math.round(fromRGB[0] + (toRGB[0] - fromRGB[0]) * norm),
+        Math.round(fromRGB[1] + (toRGB[1] - fromRGB[1]) * norm),
+        Math.round(fromRGB[2] + (toRGB[2] - fromRGB[2]) * norm),
+      ];
+      const cellColor = rgbToHex(rgb);
+      slide.addShape("rect", {
+        x: cellX0 + c * cellW, y: cellY0 + r * cellH, w: cellW, h: cellH,
+        fill: { color: cellColor },
+        line: { color: t.colors.BG, width: 1 },
+      });
+      if (labelCells) {
+        const textColor = norm > 0.55 ? t.colors.WHITE : t.colors.INK;
+        slide.addText(valueFormat(v), {
+          x: cellX0 + c * cellW, y: cellY0 + r * cellH, w: cellW, h: cellH,
+          fontFace: t.fonts.SANS, fontSize: 9,
+          color: textColor,
+          align: "center", valign: "middle", margin: 0,
+        });
+      }
+    });
+  });
+}
+
+function hexToRgb(hex) {
+  const h = hex.length === 3
+    ? hex.split("").map((c) => c + c).join("")
+    : hex;
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+}
+function rgbToHex([r, g, b]) {
+  const h = (n) => n.toString(16).padStart(2, "0").toUpperCase();
+  return `${h(r)}${h(g)}${h(b)}`;
+}
+
+// ── Gauge / Tachometer (shape-based half-dial) ────────────────────────
+// Uses pptxgenjs's "blockArc" preset — a partial ring with start/end
+// angles. Angles are in OOXML convention (0 = 3 o'clock, counterclockwise)
+// which pptxgenjs converts from degrees.
+//
+// opts:
+//   slide, theme              required
+//   position   { x, y, w, h } bounding box (square works best)
+//   value       number        current value
+//   domain     [min, max]    scale
+//   segments   [{ threshold, color }]  — optional colored zones
+//   label      string        displayed under the gauge
+//   valueFormat (v) => string  how to display the numeric value
+//
+function drawGauge(opts = {}) {
+  const {
+    slide, theme: t, position,
+    value, domain = [0, 100],
+    segments = [
+      { threshold: 0.33, color: "BERRY" },
+      { threshold: 0.66, color: "GOLD"  },
+      { threshold: 1.0,  color: "STEEL" },
+    ],
+    label, valueFormat = (v) => `${v.toFixed(0)}`,
+  } = opts;
+
+  if (!slide || !t || !position) {
+    throw new Error("drawGauge: slide, theme, position are required");
+  }
+
+  // Half-circle gauge geometry
+  // Use blockArc: 180° to 360° (OOXML) = left-to-right half, upper semicircle
+  const cx = position.x + position.w / 2;
+  const cy = position.y + position.h * 0.78;   // shifted down so half-circle sits centered vertically
+  const outerR = Math.min(position.w, position.h * 1.55) / 2;
+  const thickness = outerR * 0.22;
+  const innerR = outerR - thickness;
+
+  // Outer bounding rect for the blockArc (full circle size)
+  const arcX = cx - outerR;
+  const arcY = cy - outerR;
+  const arcW = outerR * 2;
+  const arcH = outerR * 2;
+
+  // Draw colored segment arcs.
+  // blockArc angle convention in pptxgenjs follows OOXML: start/end in degrees,
+  // 0° at 3 o'clock going counterclockwise. For a top half-circle from left
+  // (9 o'clock, 180°) to right (3 o'clock, 0°), start = 180, end = 0 going
+  // CCW through 270 (top).
+  // We split the 180° arc into segment shares.
+
+  let startDeg = 180;
+  segments.forEach((seg, i) => {
+    const prev = i === 0 ? 0 : segments[i - 1].threshold;
+    const frac = seg.threshold - prev;
+    const sweep = 180 * frac;
+    // CCW: end angle is startDeg + sweep, but we go through the top half
+    // which means decreasing in OOXML space → end = startDeg + sweep as
+    // degrees CCW from 3 o'clock.
+    const endDeg = (startDeg + sweep) % 360;
+    slide.addShape("blockArc", {
+      x: arcX, y: arcY, w: arcW, h: arcH,
+      fill: { color: resolveColor(t, seg.color) },
+      line: { type: "none" },
+      // blockArc adjustment handles (adj1, adj2) control start/end angles.
+      // pptxgenjs exposes these through `rectRadius` in some versions, but
+      // for broad compatibility we accept that the preset may render the
+      // full half-arc if adj isn't settable. In that case we'd need an
+      // alternate path (sequential sector overlays) — flagged as a known
+      // limit.
+      rotate: startDeg - 180,   // rotate the whole arc so our segment starts at 9 o'clock + startDeg
+    });
+    startDeg += sweep;
+  });
+
+  // Needle: rotated thin rectangle pointing to value
+  const norm = Math.max(0, Math.min(1, (value - domain[0]) / (domain[1] - domain[0])));
+  const needleAngle = 180 - norm * 180;   // degrees from right = 0, going up and over
+  const needleLen = outerR * 0.88;
+  // Rotate a vertical rectangle by -needleAngle + 90 to align with angle.
+  slide.addShape("rect", {
+    x: cx - 0.035, y: cy - needleLen, w: 0.07, h: needleLen,
+    fill: { color: t.colors.INK },
+    line: { type: "none" },
+    rotate: needleAngle - 90,
+  });
+  // Hub
+  slide.addShape("ellipse", {
+    x: cx - 0.12, y: cy - 0.12, w: 0.24, h: 0.24,
+    fill: { color: t.colors.INK },
+    line: { type: "none" },
+  });
+
+  // Value text below the dial
+  slide.addText(valueFormat(value), {
+    x: cx - 1.0, y: cy + 0.1, w: 2.0, h: 0.55,
+    fontFace: t.fonts.DISPLAY, fontSize: 28, color: t.colors.INK,
+    align: "center", valign: "middle", margin: 0,
+  });
+  if (label) {
+    slide.addText(label, {
+      x: cx - 1.5, y: cy + 0.65, w: 3.0, h: 0.3,
+      fontFace: t.fonts.SANS, fontSize: 10, bold: true,
+      color: t.colors.MUTED, charSpacing: 2,
+      align: "center", valign: "top", margin: 0,
+    });
+  }
+}
+
 // ── Area-proportional sizing helper (Cleveland-correct bubble sizing) ──
 // value in [domain[0], domain[1]] → diameter in [range[0], range[1]], area-scaled.
 function areaScale({ value, domain, range }) {
@@ -566,6 +895,9 @@ module.exports = {
   PlotContext,
   drawFunnel,
   drawTreemap,
+  drawSankey,
+  drawHeatmap,
+  drawGauge,
   areaScale,
   resolveColor,
   formatTick,

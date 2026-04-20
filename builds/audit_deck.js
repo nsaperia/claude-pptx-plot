@@ -10,7 +10,11 @@ const pptxgen = require("pptxgenjs");
 const fs = require("fs");
 const path = require("path");
 
-const { saperia, PlotContext, drawFunnel, drawTreemap, chrome } = require("../src");
+const {
+  saperia, PlotContext,
+  drawFunnel, drawTreemap, drawSankey, drawHeatmap, drawGauge,
+  chrome,
+} = require("../src");
 const {
   bgFill, addEyebrow, addTitle, addSubtitle,
   addHairline, addInkUnderscore,
@@ -1298,6 +1302,209 @@ const SPLIT_RIGHT = { x: 7.4,  y: 2.3, w: 5.3, h: 4.3 };
     "18 cells, sliced-and-diced. Each color is a practice; size is $M revenue in that year. Good for scanning dominance; bad for precise comparison.",
     {
       x: MARGIN, y: 6.8, w: SLIDE_W - 2 * MARGIN, h: 0.32,
+      fontFace: t.fonts.DISPLAY, fontSize: 12, italic: true, color: t.colors.INK,
+      valign: "top", margin: 0,
+    }
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//
+//           ROUND 5 · EXPLORATORY SHAPE-ONLY CHART TYPES
+//
+// Sankey, heatmap, gauge/tachometer. None are in pptxgenjs ChartType,
+// none are PPT-native in a way pptxgenjs can emit. All shape-based via
+// claude-pptx-plot. First-pass implementations to see what's feasible;
+// may warrant refinement based on visual outcome.
+//
+// ══════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════
+// SLIDE 19 — Sankey (shape-based, straight-ribbon)
+// ══════════════════════════════════════════════════════════════════════
+{
+  const s = pres.addSlide();
+  header(s,
+    "SANKEY  ·  ESCAPE-HATCH (SHAPES, STRAIGHT RIBBONS)",
+    "Revenue flow: where each dollar goes.",
+    "pptxgenjs addShape has no curve path, so ribbons are approximated by stacked thin rects (stair-stepped polygons). For true curves, matplotlib → PNG → addImage is the fallback."
+  );
+
+  // 2035 Revenue-to-EBITDA decomposition
+  const rev2035  = +(deckData.annual.find((r) => r.year === 2035).revenue / 1e6).toFixed(2);      // 58.66
+  const cogs2035 = +(deckData.annual.find((r) => r.year === 2035).totalCogs / 1e6).toFixed(2);    // 29.15
+  const eb2035   = +(deckData.annual.find((r) => r.year === 2035).ebitda / 1e6).toFixed(2);        // 15.40
+  const opex2035 = +(rev2035 - cogs2035 - eb2035).toFixed(2);                                      // ~14.11
+
+  drawSankey({
+    slide: s, theme: t,
+    source: { label: "Revenue", value: rev2035 },
+    targets: [
+      { label: "Cost of services", value: cogs2035, color: "BERRY" },
+      { label: "Opex",              value: opex2035, color: "MUTED" },
+      { label: "EBITDA",            value: eb2035,   color: "STEEL" },
+    ],
+    position: { x: 1.0, y: 2.3, w: 11.3, h: 4.2 },
+    nodeWidth: 0.7,
+  });
+
+  s.addText(
+    "For every $100 of 2035 revenue: $50 covers cost of services, $24 covers opex, $26 lands as EBITDA.",
+    {
+      x: MARGIN, y: 6.75, w: SLIDE_W - 2 * MARGIN, h: 0.32,
+      fontFace: t.fonts.DISPLAY, fontSize: 12, italic: true, color: t.colors.INK,
+      valign: "top", margin: 0,
+    }
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SLIDE 20 — Heatmap (shape-based grid)
+// ══════════════════════════════════════════════════════════════════════
+{
+  const s = pres.addSlide();
+  header(s,
+    "HEATMAP  ·  ESCAPE-HATCH (SHAPES)",
+    "Practice × year revenue, intensity-coded.",
+    "3 × 11 grid of cells. Fill color interpolated linearly between light and STEEL based on $M revenue. Values printed in each cell. Native PPT has no heatmap type."
+  );
+
+  const practices = ["Strategy", "Operations", "Technology"];
+  const data = practices.map((p) =>
+    deckData.practiceYear[p].map((v) => +(v / 1e6).toFixed(1))
+  );
+  const colLabelsH = years.map((y) => String(y));
+
+  drawHeatmap({
+    slide: s, theme: t,
+    data,
+    rowLabels: practices,
+    colLabels: colLabelsH,
+    position: { x: 0.7, y: 2.3, w: SLIDE_W - 1.4, h: 3.8 },
+    colorFrom: "BG_RAISED",
+    colorTo:   "STEEL",
+    valueFormat: (v) => `$${v.toFixed(1)}`,
+  });
+
+  // Simple legend bar below
+  const legendX = 1.0, legendY = 6.3, legendW = 4.0, legendH = 0.2;
+  for (let i = 0; i < 40; i++) {
+    const frac = i / 39;
+    const fr = hexToRgbFor(t.colors.BG_RAISED);
+    const to = hexToRgbFor(t.colors.STEEL);
+    const rgb = [
+      Math.round(fr[0] + (to[0] - fr[0]) * frac),
+      Math.round(fr[1] + (to[1] - fr[1]) * frac),
+      Math.round(fr[2] + (to[2] - fr[2]) * frac),
+    ];
+    s.addShape("rect", {
+      x: legendX + (legendW / 40) * i, y: legendY, w: legendW / 40 + 0.005, h: legendH,
+      fill: { color: rgbToHexFor(rgb) },
+      line: { type: "none" },
+    });
+  }
+  s.addText("lower $M revenue", {
+    x: legendX, y: legendY + legendH + 0.04, w: legendW * 0.45, h: 0.22,
+    fontFace: t.fonts.SANS, fontSize: 8, color: t.colors.MUTED,
+    align: "left", valign: "top", margin: 0,
+  });
+  s.addText("higher", {
+    x: legendX + legendW * 0.6, y: legendY + legendH + 0.04, w: legendW * 0.4, h: 0.22,
+    fontFace: t.fonts.SANS, fontSize: 8, color: t.colors.MUTED,
+    align: "right", valign: "top", margin: 0,
+  });
+
+  s.addText(
+    "Scan across a row to see practice trajectory; scan down a column to see firm mix that year. The 2029 dent sits in the middle.",
+    {
+      x: MARGIN, y: 6.85, w: SLIDE_W - 2 * MARGIN, h: 0.32,
+      fontFace: t.fonts.DISPLAY, fontSize: 12, italic: true, color: t.colors.INK,
+      valign: "top", margin: 0,
+    }
+  );
+}
+
+// local inline hex/rgb helpers for the legend (the module's are not exported)
+function hexToRgbFor(hex) {
+  return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+}
+function rgbToHexFor([r, g, b]) {
+  const h = (n) => n.toString(16).padStart(2, "0").toUpperCase();
+  return `${h(r)}${h(g)}${h(b)}`;
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SLIDE 21 — Gauge / Tachometer (shape-based half-dial)
+// ══════════════════════════════════════════════════════════════════════
+{
+  const s = pres.addSlide();
+  header(s,
+    "GAUGE / TACHOMETER  ·  ESCAPE-HATCH (SHAPES)",
+    "One number, three zones, one needle.",
+    "Half-circle gauge with segment zones (red / amber / green) and a needle pointing to the current value. Built from pptxgenjs blockArc presets plus a rotated rectangle needle."
+  );
+
+  // Three gauges side-by-side — different KPIs
+  const gauges = [
+    {
+      label: "UTILIZATION", value: 67.6, domain: [55, 80],
+      sub: "2035 actual · target 72%",
+      segments: [
+        { threshold: 0.45, color: "BERRY" },
+        { threshold: 0.75, color: "GOLD" },
+        { threshold: 1.0,  color: "STEEL" },
+      ],
+      format: (v) => `${v.toFixed(1)}%`,
+    },
+    {
+      label: "WIN RATE", value: 46.9, domain: [40, 70],
+      sub: "2035 actual · 10Y peak was 59.6%",
+      segments: [
+        { threshold: 0.35, color: "BERRY" },
+        { threshold: 0.70, color: "GOLD" },
+        { threshold: 1.0,  color: "STEEL" },
+      ],
+      format: (v) => `${v.toFixed(1)}%`,
+    },
+    {
+      label: "EBITDA MARGIN", value: 26.3, domain: [10, 35],
+      sub: "2035 actual · 10Y peak 33.4%",
+      segments: [
+        { threshold: 0.40, color: "BERRY" },
+        { threshold: 0.75, color: "GOLD" },
+        { threshold: 1.0,  color: "STEEL" },
+      ],
+      format: (v) => `${v.toFixed(1)}%`,
+    },
+  ];
+
+  const gaugeW = 3.8;
+  const gaugeH = 3.0;
+  const gaugeY = 2.5;
+  const gaps   = (SLIDE_W - 3 * gaugeW) / 4;
+
+  gauges.forEach((g, i) => {
+    const gx = gaps + i * (gaugeW + gaps);
+    drawGauge({
+      slide: s, theme: t,
+      position: { x: gx, y: gaugeY, w: gaugeW, h: gaugeH },
+      value: g.value,
+      domain: g.domain,
+      segments: g.segments,
+      label: g.label,
+      valueFormat: g.format,
+    });
+    s.addText(g.sub, {
+      x: gx, y: gaugeY + gaugeH + 0.4, w: gaugeW, h: 0.3,
+      fontFace: t.fonts.DISPLAY, fontSize: 11, italic: true, color: t.colors.MUTED,
+      align: "center", valign: "top", margin: 0,
+    });
+  });
+
+  s.addText(
+    "Gauges are dashboard grammar — strong at a glance, weak at precision. Use for single-number KPI cards, not for trend or composition stories.",
+    {
+      x: MARGIN, y: 6.65, w: SLIDE_W - 2 * MARGIN, h: 0.4,
       fontFace: t.fonts.DISPLAY, fontSize: 12, italic: true, color: t.colors.INK,
       valign: "top", margin: 0,
     }
