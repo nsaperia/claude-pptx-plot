@@ -10,7 +10,7 @@ const pptxgen = require("pptxgenjs");
 const fs = require("fs");
 const path = require("path");
 
-const { saperia, PlotContext, chrome } = require("../src");
+const { saperia, PlotContext, drawFunnel, drawTreemap, chrome } = require("../src");
 const {
   bgFill, addEyebrow, addTitle, addSubtitle,
   addHairline, addInkUnderscore,
@@ -1069,6 +1069,239 @@ const SPLIT_RIGHT = { x: 7.4,  y: 2.3, w: 5.3, h: 4.3 };
     fontFace: t.fonts.SANS, fontSize: 10, color: t.colors.MUTED, italic: true,
     valign: "top", margin: 0,
   });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+//
+//           ROUND 4 · ESCAPE-HATCH-ONLY CHART TYPES
+//
+// Two chart types PPT supports natively but pptxgenjs cannot emit:
+// funnel (in PowerPoint's chart menu, not in pptxgenjs ChartType enum)
+// and treemap (same). Both exist only as shape-based constructions in
+// this pipeline. No native/overlay versions because the library can't
+// produce them — the capabilities doc flags this as a library ceiling,
+// not a file-format limit.
+//
+// If raw OOXML injection becomes a separate R&D thread, these will gain
+// PPT-native counterparts and can be re-audited at A/B/C.
+//
+// ══════════════════════════════════════════════════════════════════════
+
+// ══════════════════════════════════════════════════════════════════════
+// SLIDE 15 — Funnel (simple, shape-based)
+// ══════════════════════════════════════════════════════════════════════
+{
+  const s = pres.addSlide();
+  header(s,
+    "FUNNEL CHART  ·  ESCAPE-HATCH (SHAPES)",
+    "A five-stage pipeline funnel.",
+    "PPT has a native funnel type but pptxgenjs cannot emit it. Built with shape trapezoids via claude-pptx-plot. Stage labels and values embedded; conversion rates on the right."
+  );
+
+  const funnelStages = [
+    { label: "Inbound leads",   value: 500 },
+    { label: "Qualified",       value: 300 },
+    { label: "Scoped / demo",   value: 150 },
+    { label: "Proposal sent",   value: 85  },
+    { label: "Closed-won",      value: 40  },
+  ];
+
+  drawFunnel({
+    slide: s, theme: t,
+    stages: funnelStages,
+    position: { x: 2.0, y: 2.2, w: 6.0, h: 4.3 },
+    color: "STEEL",
+    narrowTo: 0.15,
+    gap: 0.05,
+  });
+
+  // Right column — conversion rates and narrative
+  const rx = 9.0;
+  const ry = 2.3;
+  const rw = 3.5;
+
+  addEyebrow(s, t, "STAGE CONVERSION", rx, ry, rw);
+  addInkUnderscore(s, t, rx, ry + 0.3, 1.5);
+
+  let cy = ry + 0.55;
+  funnelStages.slice(0, -1).forEach((stg, i) => {
+    const next = funnelStages[i + 1];
+    const rate = (next.value / stg.value * 100).toFixed(0);
+    s.addText([
+      { text: `${stg.label} → ${next.label}`, options: { color: t.colors.MUTED } },
+    ], {
+      x: rx, y: cy, w: rw, h: 0.24,
+      fontFace: t.fonts.SANS, fontSize: 9, charSpacing: 0.5,
+      valign: "top", margin: 0,
+    });
+    s.addText(`${rate}%`, {
+      x: rx, y: cy + 0.22, w: rw, h: 0.36,
+      fontFace: t.fonts.DISPLAY, fontSize: 20, color: t.colors.INK,
+      margin: 0, valign: "top",
+    });
+    cy += 0.72;
+  });
+
+  // Total conversion at bottom
+  const totalPct = (funnelStages[funnelStages.length - 1].value / funnelStages[0].value * 100).toFixed(1);
+  addHairline(s, t, cy + 0.05, { x: rx, w: rw });
+  s.addText("LEAD-TO-WIN", {
+    x: rx, y: cy + 0.15, w: rw, h: 0.24,
+    fontFace: t.fonts.SANS, fontSize: 9, bold: true, color: t.colors.MUTED,
+    charSpacing: 1.5, valign: "top", margin: 0,
+  });
+  s.addText([{ text: `${totalPct}%`, options: { color: t.colors.INK, highlight: t.colors.LIME } }], {
+    x: rx, y: cy + 0.4, w: rw, h: 0.55,
+    fontFace: t.fonts.DISPLAY, fontSize: 32, margin: 0, valign: "top",
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SLIDE 16 — Funnel (stress, two funnels side-by-side)
+// ══════════════════════════════════════════════════════════════════════
+{
+  const s = pres.addSlide();
+  header(s,
+    "FUNNEL CHART  ·  STRESS-TEST (TWO-ERA COMPARISON)",
+    "2025 pipeline vs 2035 pipeline.",
+    "Two funnels, same stages, ten years apart. Shape-based placement lets them share an x-axis logic and per-stage color coding — native would hit a wall here even if it existed."
+  );
+
+  const funnel2025 = [
+    { label: "Leads",     value: 450 },
+    { label: "Qualified", value: 220 },
+    { label: "Demo",      value: 95  },
+    { label: "Proposal",  value: 50  },
+    { label: "Won",       value: 20  },
+  ];
+  const funnel2035 = [
+    { label: "Leads",     value: 650 },
+    { label: "Qualified", value: 420 },
+    { label: "Demo",      value: 230 },
+    { label: "Proposal",  value: 140 },
+    { label: "Won",       value: 75  },
+  ];
+
+  drawFunnel({
+    slide: s, theme: t, stages: funnel2025,
+    position: { x: 1.0, y: 2.4, w: 4.5, h: 3.9 },
+    color: "BERRY", narrowTo: 0.08, gap: 0.05,
+  });
+  s.addText("2025", {
+    x: 1.0, y: 6.35, w: 4.5, h: 0.4,
+    fontFace: t.fonts.DISPLAY, fontSize: 20, color: t.colors.INK,
+    align: "center", valign: "top", margin: 0,
+  });
+  s.addText(`4.4% lead-to-win`, {
+    x: 1.0, y: 6.7, w: 4.5, h: 0.28,
+    fontFace: t.fonts.DISPLAY, fontSize: 11, italic: true, color: t.colors.MUTED,
+    align: "center", valign: "top", margin: 0,
+  });
+
+  drawFunnel({
+    slide: s, theme: t, stages: funnel2035,
+    position: { x: 7.8, y: 2.4, w: 4.5, h: 3.9 },
+    color: "STEEL", narrowTo: 0.08, gap: 0.05,
+  });
+  s.addText("2035", {
+    x: 7.8, y: 6.35, w: 4.5, h: 0.4,
+    fontFace: t.fonts.DISPLAY, fontSize: 20, color: t.colors.INK,
+    align: "center", valign: "top", margin: 0,
+  });
+  s.addText(`11.5% lead-to-win`, {
+    x: 7.8, y: 6.7, w: 4.5, h: 0.28,
+    fontFace: t.fonts.DISPLAY, fontSize: 11, italic: true, color: t.colors.MUTED,
+    align: "center", valign: "top", margin: 0,
+  });
+
+  // Middle arrow
+  s.addText("→", {
+    x: 5.8, y: 4.1, w: 1.7, h: 0.8,
+    fontFace: t.fonts.DISPLAY, fontSize: 44, color: t.colors.MUTED,
+    align: "center", valign: "middle", margin: 0,
+  });
+  s.addText("2.6× efficiency", {
+    x: 5.3, y: 4.85, w: 2.7, h: 0.3,
+    fontFace: t.fonts.DISPLAY, fontSize: 12, italic: true, color: t.colors.INK,
+    align: "center", valign: "top", margin: 0,
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SLIDE 17 — Treemap (simple, shape-based)
+// ══════════════════════════════════════════════════════════════════════
+{
+  const s = pres.addSlide();
+  header(s,
+    "TREEMAP  ·  ESCAPE-HATCH (SHAPES)",
+    "2035 revenue by practice.",
+    "Another PPT-native type pptxgenjs cannot emit. Slice-and-dice layout in claude-pptx-plot — rectangles sized by value, colored by practice, labeled in situ."
+  );
+
+  const treemapItems = [
+    { label: "Operations", value: +(deckData.practiceYear.Operations[10] / 1e6).toFixed(2), color: "LBLUE", sub: "Leader by 2035" },
+    { label: "Technology", value: +(deckData.practiceYear.Technology[10] / 1e6).toFixed(2), color: "BERRY", sub: "Fastest grower" },
+    { label: "Strategy",   value: +(deckData.practiceYear.Strategy[10]   / 1e6).toFixed(2), color: "STEEL", sub: "Cyclical anchor" },
+  ];
+
+  drawTreemap({
+    slide: s, theme: t,
+    items: treemapItems,
+    position: { x: 0.7, y: 2.2, w: 12.0, h: 4.5 },
+    gap: 0.06,
+  });
+
+  s.addText(
+    "With three nearly-equal segments, treemap reads like a horizontal composition bar. Its advantage shows at higher cardinality.",
+    {
+      x: MARGIN, y: 6.85, w: SLIDE_W - 2 * MARGIN, h: 0.32,
+      fontFace: t.fonts.DISPLAY, fontSize: 12, italic: true, color: t.colors.INK,
+      valign: "top", margin: 0,
+    }
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// SLIDE 18 — Treemap (stress, 18 cells: 3 practices × 6 years)
+// ══════════════════════════════════════════════════════════════════════
+{
+  const s = pres.addSlide();
+  header(s,
+    "TREEMAP  ·  STRESS-TEST (18 CELLS)",
+    "Every practice-year as a cell.",
+    "Three practices × six years = 18 cells, sized by $M revenue, colored by practice. Slice-and-dice gets noisy at this density — shows where squarified algorithms would pay off."
+  );
+
+  const stressYears = [2025, 2027, 2029, 2031, 2033, 2035];
+  const stressIdx   = [0, 2, 4, 6, 8, 10];
+  const practiceTokens = { Strategy: "STEEL", Operations: "LBLUE", Technology: "BERRY" };
+  const stressItems = [];
+  ["Strategy", "Operations", "Technology"].forEach((practice) => {
+    stressIdx.forEach((idx, k) => {
+      stressItems.push({
+        label: `${practice.slice(0, 4)} ${stressYears[k]}`,
+        value: +(deckData.practiceYear[practice][idx] / 1e6).toFixed(2),
+        color: practiceTokens[practice],
+      });
+    });
+  });
+
+  drawTreemap({
+    slide: s, theme: t,
+    items: stressItems,
+    position: { x: 0.7, y: 2.2, w: 12.0, h: 4.4 },
+    gap: 0.03,
+    labelMin: 0.8,
+  });
+
+  s.addText(
+    "18 cells, sliced-and-diced. Each color is a practice; size is $M revenue in that year. Good for scanning dominance; bad for precise comparison.",
+    {
+      x: MARGIN, y: 6.8, w: SLIDE_W - 2 * MARGIN, h: 0.32,
+      fontFace: t.fonts.DISPLAY, fontSize: 12, italic: true, color: t.colors.INK,
+      valign: "top", margin: 0,
+    }
+  );
 }
 
 // ── Write ─────────────────────────────────────────────────────────────

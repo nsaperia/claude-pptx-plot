@@ -367,6 +367,191 @@ class PlotContext {
   }
 }
 
+// ── Funnel (standalone — not a PlotContext method) ────────────────────
+// Draws a vertically-stacked trapezoid funnel inside a slide rectangle.
+// Not inside PlotContext because funnels have no xRange/yRange — they're
+// pure proportional composition, self-contained.
+//
+// opts:
+//   slide        required
+//   theme        required (normally saperia)
+//   stages       [{label, value, sub?}]   top to bottom
+//   position     {x, y, w, h}             the box the funnel sits in
+//   color        token name (default "STEEL")
+//   narrowTo     fraction 0-1 of widest — width of the narrowest stage
+//                relative to the widest (default 0.25)
+//   gap          slide-inches between stages (default 0.06)
+//   showLabels   bool, default true — inline stage labels + values
+//
+function drawFunnel(opts = {}) {
+  const {
+    slide, theme: t, stages, position,
+    color = "STEEL", narrowTo = 0.25, gap = 0.06,
+    showLabels = true,
+  } = opts;
+
+  if (!slide || !t || !stages || !position) {
+    throw new Error("drawFunnel: slide, theme, stages, position are required");
+  }
+
+  const col = resolveColor(t, color);
+  const n = stages.length;
+  const stageH = (position.h - gap * (n - 1)) / n;
+  const maxV = Math.max(...stages.map((s) => s.value));
+  const minV = Math.min(...stages.map((s) => s.value));
+
+  // Map a stage's value to a normalized width in [narrowTo, 1].
+  const valueToWidth = (v) =>
+    narrowTo + ((v - minV) / (maxV - minV || 1)) * (1 - narrowTo);
+
+  const cx = position.x + position.w / 2;
+
+  stages.forEach((stg, i) => {
+    const topV    = stg.value;
+    const botV    = i < n - 1 ? stages[i + 1].value : stg.value * narrowTo;
+    const topW    = position.w * valueToWidth(topV);
+    const botW    = i < n - 1
+      ? position.w * valueToWidth(botV)
+      : topW * 0.55;   // final stage narrows further to close the funnel
+    const y       = position.y + i * (stageH + gap);
+
+    // Trapezoid via custGeom — pptxgenjs supports custom geometry.
+    // Fallback: build with four line segments + a poly-shape via rect +
+    // two triangle corners. Cleanest path: the "trapezoid" prstGeom.
+    slide.addShape("trapezoid", {
+      x: cx - topW / 2,
+      y,
+      w: topW,
+      h: stageH,
+      fill: { color: col, transparency: 18 + i * 8 },   // fade down
+      line: { color: col, width: 0.5 },
+      flipV: true,   // prstGeom trapezoid points up by default; flip to widen-at-top
+    });
+
+    if (showLabels) {
+      // Stage label + value, centered inside the trapezoid
+      slide.addText(
+        [
+          { text: stg.label,              options: { color: t.colors.WHITE, bold: true } },
+          { text: `  ·  ${stg.value}`,    options: { color: t.colors.WHITE } },
+        ],
+        {
+          x: cx - topW / 2, y: y + stageH / 2 - 0.15,
+          w: topW, h: 0.3,
+          fontFace: t.fonts.SANS, fontSize: 11,
+          align: "center", valign: "middle", margin: 0,
+        }
+      );
+      if (stg.sub) {
+        slide.addText(stg.sub, {
+          x: cx - topW / 2, y: y + stageH / 2 + 0.08,
+          w: topW, h: 0.28,
+          fontFace: t.fonts.DISPLAY, fontSize: 10, italic: true,
+          color: t.colors.WHITE, align: "center", valign: "top", margin: 0,
+        });
+      }
+    }
+  });
+}
+
+// ── Treemap (standalone) ──────────────────────────────────────────────
+// Slice-and-dice layout. For each recursion, split along the longer
+// dimension of the remaining rectangle; largest-value item gets the
+// share proportional to its value. Not squarified, but deterministic,
+// compact, and fine at 3–20 items.
+//
+// opts:
+//   slide        required
+//   theme        required
+//   items        [{label, value, color?, sub?}]  — will be sorted desc
+//   position     {x, y, w, h}
+//   gap          slide-inches between rects (default 0.04)
+//   colors       array of palette tokens if items don't specify color
+//   labelMin     skip label if rect w or h smaller than this (default 0.6)
+//
+function drawTreemap(opts = {}) {
+  const {
+    slide, theme: t, items, position,
+    gap = 0.04,
+    colors = ["STEEL", "LBLUE", "BERRY", "SLATE", "MUTED", "GOLD"],
+    labelMin = 0.6,
+  } = opts;
+
+  if (!slide || !t || !items || !position) {
+    throw new Error("drawTreemap: slide, theme, items, position are required");
+  }
+
+  const sorted = [...items]
+    .map((it, i) => ({ ...it, _idx: i }))
+    .sort((a, b) => b.value - a.value);
+
+  const total = sorted.reduce((s, it) => s + it.value, 0);
+
+  // Recursive slice-and-dice.
+  function layout(remaining, rect) {
+    if (remaining.length === 0) return [];
+    if (remaining.length === 1) {
+      return [{ item: remaining[0], rect }];
+    }
+    const first = remaining[0];
+    const rest  = remaining.slice(1);
+    const sumHere = remaining.reduce((s, it) => s + it.value, 0);
+    const frac = first.value / sumHere;
+
+    let firstRect, restRect;
+    if (rect.w >= rect.h) {
+      // Split horizontally: first takes left portion
+      const firstW = rect.w * frac;
+      firstRect = { x: rect.x, y: rect.y, w: firstW - gap, h: rect.h };
+      restRect  = { x: rect.x + firstW, y: rect.y, w: rect.w - firstW, h: rect.h };
+    } else {
+      // Split vertically: first takes top portion
+      const firstH = rect.h * frac;
+      firstRect = { x: rect.x, y: rect.y, w: rect.w, h: firstH - gap };
+      restRect  = { x: rect.x, y: rect.y + firstH, w: rect.w, h: rect.h - firstH };
+    }
+    return [{ item: first, rect: firstRect }, ...layout(rest, restRect)];
+  }
+
+  const placed = layout(sorted, { ...position });
+
+  placed.forEach((p, i) => {
+    const col = resolveColor(
+      t,
+      p.item.color || colors[p.item._idx % colors.length]
+    );
+    slide.addShape("rect", {
+      x: p.rect.x, y: p.rect.y, w: p.rect.w, h: p.rect.h,
+      fill: { color: col },
+      line: { color: t.colors.BG, width: 1 },
+    });
+    if (p.rect.w >= labelMin && p.rect.h >= labelMin && p.item.label) {
+      slide.addText(p.item.label, {
+        x: p.rect.x + 0.06, y: p.rect.y + 0.06,
+        w: p.rect.w - 0.12, h: 0.3,
+        fontFace: t.fonts.SANS, fontSize: 10, bold: true, color: t.colors.WHITE,
+        charSpacing: 1, valign: "top", margin: 0,
+      });
+      if (p.item.sub) {
+        slide.addText(p.item.sub, {
+          x: p.rect.x + 0.06, y: p.rect.y + 0.36,
+          w: p.rect.w - 0.12, h: 0.3,
+          fontFace: t.fonts.DISPLAY, fontSize: 11, italic: true, color: t.colors.WHITE,
+          valign: "top", margin: 0,
+        });
+      }
+      if (p.item.value != null && p.rect.h >= 0.8) {
+        slide.addText(`$${(p.item.value).toFixed(1)}M`, {
+          x: p.rect.x + 0.06, y: p.rect.y + p.rect.h - 0.36,
+          w: p.rect.w - 0.12, h: 0.3,
+          fontFace: t.fonts.DISPLAY, fontSize: 14, color: t.colors.WHITE,
+          valign: "bottom", margin: 0,
+        });
+      }
+    }
+  });
+}
+
 // ── Area-proportional sizing helper (Cleveland-correct bubble sizing) ──
 // value in [domain[0], domain[1]] → diameter in [range[0], range[1]], area-scaled.
 function areaScale({ value, domain, range }) {
@@ -377,4 +562,11 @@ function areaScale({ value, domain, range }) {
   return Math.sqrt(area);
 }
 
-module.exports = { PlotContext, areaScale, resolveColor, formatTick };
+module.exports = {
+  PlotContext,
+  drawFunnel,
+  drawTreemap,
+  areaScale,
+  resolveColor,
+  formatTick,
+};

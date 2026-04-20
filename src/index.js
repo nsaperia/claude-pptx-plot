@@ -1,10 +1,19 @@
 const { saperia } = require("./theme");
-const { PlotContext, areaScale, resolveColor, formatTick } = require("./plot");
+const {
+  PlotContext,
+  drawFunnel,
+  drawTreemap,
+  areaScale,
+  resolveColor,
+  formatTick,
+} = require("./plot");
 const chrome = require("./chrome");
 
 module.exports = {
   saperia,
   PlotContext,
+  drawFunnel,
+  drawTreemap,
   areaScale,
   resolveColor,
   formatTick,
