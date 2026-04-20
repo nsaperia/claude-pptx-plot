@@ -529,27 +529,59 @@ const SPLIT_RIGHT = { x: 7.4,  y: 2.3, w: 5.3, h: 4.3 };
   };
   const total2035 = +(mix2035.Strategy + mix2035.Operations + mix2035.Technology).toFixed(2);
 
+  const donutSlices = [
+    { name: "Strategy",   value: mix2035.Strategy,   textColor: t.colors.WHITE },
+    { name: "Operations", value: mix2035.Operations, textColor: t.colors.INK   },
+    { name: "Technology", value: mix2035.Technology, textColor: t.colors.WHITE },
+  ];
+
   s.addChart(
     pres.ChartType.doughnut,
     [{
       name: "Revenue mix",
-      labels: ["Strategy", "Operations", "Technology"],
-      values: [mix2035.Strategy, mix2035.Operations, mix2035.Technology],
+      labels: donutSlices.map((sl) => sl.name),
+      values: donutSlices.map((sl) => sl.value),
     }],
     {
       x: SPLIT_LEFT.x, y: SPLIT_LEFT.y, w: SPLIT_LEFT.w, h: SPLIT_LEFT.h,
       chartColors: [t.colors.STEEL, t.colors.LBLUE, t.colors.BERRY],
       showLegend: false,
-      // Native data labels turned OFF — right column carries the readout.
-      // Native donut labels sit inside the slice at a fixed size and are
-      // hard to style against a warm background; offloading to text
-      // blocks gives proper typographic control.
+      // Native labels off. Percentages are placed as shape overlays below
+      // at computed arc midpoints — native's fixed sizing can't hit the
+      // ring legibly at our chart dimensions.
       showValue: false, showPercent: false, showCategoryName: false,
       holeSize: 65,
       plotArea:  { fill: { color: t.colors.BG } },
       chartArea: { fill: { color: t.colors.BG } },
     }
   );
+
+  // Shape-overlay labels: one percentage per slice at its arc midpoint.
+  // Geometry note: pptxgenjs doughnut starts at 12 o'clock and sweeps
+  // clockwise. We compute (dx, dy) = (sin θ, -cos θ) · r to find the
+  // midline of each slice in slide coords.
+  {
+    const cx = SPLIT_LEFT.x + SPLIT_LEFT.w / 2;
+    const cy = SPLIT_LEFT.y + SPLIT_LEFT.h / 2;
+    const labelR = 1.35;   // midline between outer radius and the 65% hole
+    const total = donutSlices.reduce((s, sl) => s + sl.value, 0);
+    let cumAngle = 0;
+    donutSlices.forEach((sl) => {
+      const sweepDeg = (sl.value / total) * 360;
+      const midDeg = cumAngle + sweepDeg / 2;
+      const rad = midDeg * Math.PI / 180;
+      const dx = Math.sin(rad) * labelR;
+      const dy = -Math.cos(rad) * labelR;
+      const pct = Math.round((sl.value / total) * 100);
+      s.addText(`${pct}%`, {
+        x: cx + dx - 0.5, y: cy + dy - 0.2, w: 1.0, h: 0.4,
+        fontFace: t.fonts.DISPLAY, fontSize: 18, bold: false,
+        color: sl.textColor,
+        align: "center", valign: "middle", margin: 0,
+      });
+      cumAngle += sweepDeg;
+    });
+  }
 
   // Right column — textual callouts replace native legend
   const rx = SPLIT_RIGHT.x;
