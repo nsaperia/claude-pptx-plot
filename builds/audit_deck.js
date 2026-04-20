@@ -1407,30 +1407,28 @@ function rgbToHexFor([r, g, b]) {
   const s = pres.addSlide();
   header(s,
     "GAUGE / TACHOMETER  ·  ESCAPE-HATCH (MATPLOTLIB)",
-    "Three KPIs, three half-dials.",
-    "pptxgenjs's blockArc can't hit arbitrary start/end angles cleanly, so shape-based gauges look chunky. Generated via matplotlib Wedge, inserted as PNG. The handoff's established fallback for curve-heavy viz."
+    "Six KPIs, two categories, one panel.",
+    "Rendered via matplotlib (Wedge arcs, needle, triangle target markers) and embedded as a PNG. pptxgenjs blockArc can't hit arbitrary angles cleanly; matplotlib handles curves natively. Categorical eyebrows group the metrics."
   );
 
   const pngPath = path.resolve(__dirname, "..", "assets", "gauges.png");
-  // Image is 12 × 3.6 inches at render, preserve aspect ratio when placing.
+  // Source render is 12 × 8 inches; preserve aspect ratio.
   const imgW = SLIDE_W - 1.4;          // 11.93
-  const imgH = imgW * (3.6 / 12);      // preserve source aspect ratio
+  const imgH = imgW * (8.0 / 12.0);    // ~7.95"
+  // If the image is taller than available slide space, scale down by height.
+  const availH = SLIDE_H - 2.2 - 0.3;  // 5.0" from y=2.2 to y=7.2
+  let finalW = imgW, finalH = imgH;
+  if (imgH > availH) {
+    finalH = availH;
+    finalW = finalH * (12.0 / 8.0);
+  }
   s.addImage({
     path: pngPath,
-    x: (SLIDE_W - imgW) / 2,
-    y: 2.4,
-    w: imgW,
-    h: imgH,
+    x: (SLIDE_W - finalW) / 2,
+    y: 2.1,
+    w: finalW,
+    h: finalH,
   });
-
-  s.addText(
-    "Gauges are dashboard grammar — strong at a glance, weak at precision. Good fit for single-number KPI cards; not for trends or composition.",
-    {
-      x: MARGIN, y: 6.65, w: SLIDE_W - 2 * MARGIN, h: 0.4,
-      fontFace: t.fonts.DISPLAY, fontSize: 12, italic: true, color: t.colors.INK,
-      valign: "top", margin: 0,
-    }
-  );
 }
 
 // ── Write ─────────────────────────────────────────────────────────────
