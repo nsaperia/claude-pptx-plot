@@ -12,7 +12,7 @@ const path = require("path");
 
 const {
   saperia, PlotContext,
-  drawFunnel, drawTreemap, drawHeatmap,
+  drawFunnel, drawTreemap, drawHeatmap, drawGauge,
   chrome,
 } = require("../src");
 const {
@@ -1396,38 +1396,105 @@ function rgbToHexFor([r, g, b]) {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// SLIDE 20 — Gauge / Tachometer (matplotlib PNG)
+// SLIDE 20 — Gauge / Tachometer (hybrid: arc PNG + native overlays)
 // ══════════════════════════════════════════════════════════════════════
-// Shape-based gauges via pptxgenjs blockArc were clunky — blockArc does
-// not expose adjustment handles through addShape options, so arbitrary
-// start/end angles aren't possible. Rendered the gauges in matplotlib
-// (scripts/make_gauges.py) and embed the resulting PNG here. This is
-// the handoff's established pattern for curve-heavy viz.
+// Minimum-outsourcing approach: the only thing pulled from matplotlib
+// is the colored arc zones (curves pptxgenjs can't draw natively).
+// Every other element — tick marks, tick labels, target triangle,
+// needle, hub, title, subtitle, value, target, delta, section
+// eyebrows, hairlines — is a native pptxgenjs shape or text so PowerPoint
+// editors can tune the gauges without re-running Python.
 {
   const s = pres.addSlide();
   header(s,
-    "GAUGE / TACHOMETER  ·  ESCAPE-HATCH (MATPLOTLIB)",
+    "GAUGE / TACHOMETER  ·  HYBRID (ARC PNG + NATIVE OVERLAYS)",
     "Six KPIs, two categories, one panel.",
-    "Rendered via matplotlib (Wedge arcs, needle, triangle target markers) and embedded as a PNG. pptxgenjs blockArc can't hit arbitrary angles cleanly; matplotlib handles curves natively. Categorical eyebrows group the metrics."
+    "Matplotlib supplies the arc zones only; every other element stays native so each gauge is independently editable. Pattern: minimize outsourcing to the absolute minimum required to get the job done."
   );
 
-  const pngPath = path.resolve(__dirname, "..", "assets", "gauges.png");
-  // Source render is 12 × 8 inches; preserve aspect ratio.
-  const imgW = SLIDE_W - 1.4;          // 11.93
-  const imgH = imgW * (8.0 / 12.0);    // ~7.95"
-  // If the image is taller than available slide space, scale down by height.
-  const availH = SLIDE_H - 2.2 - 0.3;  // 5.0" from y=2.2 to y=7.2
-  let finalW = imgW, finalH = imgH;
-  if (imgH > availH) {
-    finalH = availH;
-    finalW = finalH * (12.0 / 8.0);
-  }
-  s.addImage({
-    path: pngPath,
-    x: (SLIDE_W - finalW) / 2,
-    y: 2.1,
-    w: finalW,
-    h: finalH,
+  const arcPath = path.resolve(__dirname, "..", "assets", "gauge_arc.png");
+
+  // Layout: two section rows, three gauges per row, with native eyebrows.
+  const sectionY     = [2.1, 4.75];    // top of each section
+  const eyebrowH     = 0.28;
+  const cardStartY   = [2.45, 5.10];
+  const cardW        = 3.85;
+  const cardH        = 2.55;
+  const cardGap      = (SLIDE_W - 2 * MARGIN - 3 * cardW) / 2;
+
+  const sectionLabels = [
+    { text: "THE MONEY WORKS",    color: t.colors.STEEL },
+    { text: "THE PEOPLE PROBLEM", color: t.colors.BERRY },
+  ];
+
+  const gauges = [
+    // Row 0 — THE MONEY WORKS
+    { row: 0, title: "Realization Rate",   subtitle: "Billed vs. worked value",
+      value: 93.0, target: 90.0, domain: [50, 100], ticks: [60, 70, 80, 90],
+      higherIsBetter: true,  valueFormat: (v) => `${v.toFixed(0)}%`,
+      targetFormat: (t) => `Target: ${t}%` },
+    { row: 0, title: "Collection Rate",    subtitle: "Collected vs. billed",
+      value: 93.0, target: 90.0, domain: [50, 100], ticks: [60, 70, 80, 90],
+      higherIsBetter: true,  valueFormat: (v) => `${v.toFixed(0)}%`,
+      targetFormat: (t) => `Target: ${t}%` },
+    { row: 0, title: "EBITDA Margin",      subtitle: "Profitability after expenses",
+      value: 26.3, target: 25.0, domain: [0, 60], ticks: [12, 24, 36, 48],
+      higherIsBetter: true,  valueFormat: (v) => `${v.toFixed(1)}%`,
+      targetFormat: (t) => `Target: ${t}%` },
+    // Row 1 — THE PEOPLE PROBLEM
+    { row: 1, title: "Utilization Rate",   subtitle: "Billable vs. total hours",
+      value: 67.6, target: 72.0, domain: [30, 90], ticks: [42, 54, 66, 78],
+      higherIsBetter: true,  valueFormat: (v) => `${v.toFixed(0)}%`,
+      targetFormat: (t) => `Target: ${t}%` },
+    { row: 1, title: "Annualized Turnover", subtitle: "Departures / headcount",
+      value: 7.0, target: 15.0, domain: [0, 40], ticks: [8, 16, 24, 32],
+      higherIsBetter: false, valueFormat: (v) => `${v.toFixed(0)}%`,
+      targetFormat: (t) => `Target: <${t}%` },
+    { row: 1, title: "Leverage Ratio",     subtitle: "Staff per equity partner",
+      value: 10.0, target: 6.0, domain: [0, 15], ticks: [3, 6, 9, 12],
+      higherIsBetter: null,  valueFormat: (v) => `${v.toFixed(1)}×`,
+      targetFormat: (t) => `Target: ${t}×` },
+  ];
+
+  // Section eyebrows + hairlines (native)
+  sectionLabels.forEach((sl, idx) => {
+    addEyebrow(s, t, sl.text, MARGIN, sectionY[idx], SLIDE_W - 2 * MARGIN);
+    // Override color (addEyebrow uses MUTED by default — we want steel/berry)
+    // Simpler: addEyebrow doesn't take a color param, so overlay text directly
+    s.addShape("rect", {
+      x: MARGIN, y: sectionY[idx],
+      w: SLIDE_W - 2 * MARGIN, h: 0.28,
+      fill: { color: t.colors.BG }, line: { type: "none" },
+    });
+    s.addText(sl.text, {
+      x: MARGIN, y: sectionY[idx], w: SLIDE_W - 2 * MARGIN, h: 0.28,
+      fontFace: t.fonts.SANS, fontSize: 11, bold: true, color: sl.color,
+      charSpacing: 2, valign: "middle", margin: 0,
+    });
+    // Hairline under the eyebrow
+    addHairline(s, t, sectionY[idx] + eyebrowH);
+  });
+
+  // Gauges
+  gauges.forEach((g, i) => {
+    const colInRow = i % 3;
+    const row = g.row;
+    const cardX = MARGIN + colInRow * (cardW + cardGap);
+    const cardY = cardStartY[row];
+    drawGauge({
+      slide: s, theme: t,
+      position: { x: cardX, y: cardY, w: cardW, h: cardH },
+      title: g.title,
+      subtitle: g.subtitle,
+      value: g.value,
+      target: g.target,
+      domain: g.domain,
+      ticks: g.ticks,
+      higherIsBetter: g.higherIsBetter,
+      valueFormat: g.valueFormat,
+      targetFormat: g.targetFormat,
+      arcImagePath: arcPath,
+    });
   });
 }
 

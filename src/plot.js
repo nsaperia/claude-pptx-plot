@@ -656,10 +656,214 @@ function rgbToHex([r, g, b]) {
   return `${h(r)}${h(g)}${h(b)}`;
 }
 
-// ── Gauge: removed in round 5. ────────────────────────────────────────
-// pptxgenjs's blockArc preset doesn't expose adjustment handles for
-// arbitrary start/end angles, which made shape-based gauges clunky.
-// For gauges, use matplotlib PNG + addImage (see scripts/make_gauges.py).
+// ── Gauge (hybrid: matplotlib arc PNG + native overlays) ──────────────
+// Minimum-outsourcing approach: the matplotlib PNG contains ONLY the
+// three colored arc zones (the curvy part pptxgenjs can't do cleanly).
+// Everything else — tick marks, tick labels, target triangle, needle,
+// hub, all text — is rendered natively so it remains editable in
+// PowerPoint and each gauge can be positioned independently.
+//
+// opts:
+//   slide, theme                 required
+//   position { x, y, w, h }      the whole gauge card (title + arc + value stack)
+//   title, subtitle              rendered natively above the arc
+//   value, target                data (numbers)
+//   domain    [lo, hi]           arc scale
+//   ticks     [v, v, ...]        value positions to label on the arc
+//   higherIsBetter  true | false | null
+//                                — true: red-to-green left-to-right (default)
+//                                — false: green-to-red (flipH the arc PNG)
+//                                — null:  same as true, but no good/bad framing
+//   valueFormat (v) => string    how the center value is displayed
+//   targetFormat (v) => string   how the target line reads
+//   arcImagePath  string         absolute path to gauge_arc.png
+//
+function drawGauge(opts = {}) {
+  const {
+    slide, theme: t,
+    position,
+    title, subtitle,
+    value, target, domain,
+    ticks = [],
+    higherIsBetter = true,
+    valueFormat = (v) => `${v}`,
+    targetFormat = null,
+    arcImagePath,
+  } = opts;
+
+  if (!slide || !t || !position || !arcImagePath) {
+    throw new Error("drawGauge: slide, theme, position, arcImagePath are required");
+  }
+  const [lo, hi] = domain;
+
+  const { x, y, w, h } = position;
+
+  // Header: title + subtitle ------------------------------------------
+  const headerTop   = y;
+  const titleH      = 0.28;
+  const subtitleH   = 0.22;
+  slide.addText(title || "", {
+    x, y: headerTop, w, h: titleH,
+    fontFace: t.fonts.SANS, fontSize: 12, bold: true, color: t.colors.INK,
+    align: "center", valign: "middle", margin: 0,
+  });
+  if (subtitle) {
+    slide.addText(subtitle, {
+      x, y: headerTop + titleH, w, h: subtitleH,
+      fontFace: t.fonts.DISPLAY, fontSize: 10, italic: true, color: t.colors.MUTED,
+      align: "center", valign: "middle", margin: 0,
+    });
+  }
+
+  // Arc region ---------------------------------------------------------
+  // The PNG is a 2:1 aspect semicircle (a wide half-circle).
+  // Fit it inside the remaining card width, reserving space below for
+  // the value stack (value + target + delta).
+  const headerBottomY = headerTop + titleH + (subtitle ? subtitleH : 0);
+  const valueStackH   = 1.05;   // value (22pt) + target + delta + gap
+  const arcSlotH      = h - (headerBottomY - y) - valueStackH;
+  const maxArcH = Math.max(0.6, arcSlotH);
+  // Arc PNG width constrained by both slot width and 2× slot height
+  const arcW = Math.min(w * 0.88, maxArcH * 2);
+  const arcH = arcW / 2;
+  const arcX = x + (w - arcW) / 2;
+  const arcY = headerBottomY + 0.05;
+
+  slide.addImage({
+    path: arcImagePath,
+    x: arcX, y: arcY, w: arcW, h: arcH,
+    flipH: higherIsBetter === false,
+  });
+
+  // Arc geometry for overlays
+  const cx      = arcX + arcW / 2;
+  const cy      = arcY + arcH;
+  const rOuter  = arcW / 2;
+  const trackW  = rOuter * 0.22;
+  const rInner  = rOuter - trackW;
+  const rMid    = (rOuter + rInner) / 2;
+
+  const angleAt = (v) => 180 - ((v - lo) / (hi - lo)) * 180;   // degrees, CCW from +x
+
+  // Tick marks + labels ----------------------------------------------
+  const tickLen = rOuter * 0.08;
+  ticks.forEach((tv) => {
+    const thetaDeg = angleAt(tv);
+    const thetaRad = thetaDeg * Math.PI / 180;
+    const x1 = cx + Math.cos(thetaRad) * rOuter;
+    const y1 = cy - Math.sin(thetaRad) * rOuter;
+    const x2 = cx + Math.cos(thetaRad) * (rOuter + tickLen);
+    const y2 = cy - Math.sin(thetaRad) * (rOuter + tickLen);
+    slide.addShape("line", {
+      x: Math.min(x1, x2), y: Math.min(y1, y2),
+      w: Math.abs(x2 - x1), h: Math.abs(y2 - y1),
+      line: { color: t.colors.MUTED, width: 0.5 },
+      flipH: x1 > x2, flipV: y1 > y2,
+    });
+    // Label further out
+    const labelR = rOuter + tickLen + 0.16;
+    const lx = cx + Math.cos(thetaRad) * labelR;
+    const ly = cy - Math.sin(thetaRad) * labelR;
+    slide.addText(String(tv), {
+      x: lx - 0.22, y: ly - 0.11, w: 0.44, h: 0.22,
+      fontFace: t.fonts.SANS, fontSize: 8, color: t.colors.MUTED,
+      align: "center", valign: "middle", margin: 0,
+    });
+  });
+
+  // Min / max labels at the ends of the arc
+  slide.addText(String(lo), {
+    x: cx - rOuter - 0.26, y: cy - 0.08, w: 0.25, h: 0.22,
+    fontFace: t.fonts.SANS, fontSize: 8, color: t.colors.MUTED,
+    align: "right", valign: "middle", margin: 0,
+  });
+  slide.addText(String(hi), {
+    x: cx + rOuter + 0.01, y: cy - 0.08, w: 0.25, h: 0.22,
+    fontFace: t.fonts.SANS, fontSize: 8, color: t.colors.MUTED,
+    align: "left", valign: "middle", margin: 0,
+  });
+
+  // Target triangle ---------------------------------------------------
+  // Placed past the tick labels, apex pointing toward the gauge center.
+  // pptxgenjs triangle default points UP; rotate so apex points toward origin.
+  // Rotation formula (derived): (90 + tFrac * 180) mod 360, clockwise.
+  const tFrac = Math.max(0, Math.min(1, (target - lo) / (hi - lo)));
+  const tDeg  = angleAt(target);
+  const tRad  = tDeg * Math.PI / 180;
+  const triR  = rOuter + tickLen + 0.38;
+  const triX  = cx + Math.cos(tRad) * triR;
+  const triY  = cy - Math.sin(tRad) * triR;
+  const triSize = 0.14;
+  const triRot  = (90 + tFrac * 180) % 360;
+  slide.addShape("triangle", {
+    x: triX - triSize / 2, y: triY - triSize / 2,
+    w: triSize, h: triSize,
+    fill: { color: t.colors.STEEL },
+    line: { type: "none" },
+    rotate: triRot,
+  });
+
+  // Needle ------------------------------------------------------------
+  const vFrac = Math.max(0, Math.min(1, (value - lo) / (hi - lo)));
+  const vDeg  = angleAt(value);
+  const vRad  = vDeg * Math.PI / 180;
+  const tipR  = rMid + 0.04;
+  const tipX  = cx + Math.cos(vRad) * tipR;
+  const tipY  = cy - Math.sin(vRad) * tipR;
+  slide.addShape("line", {
+    x: Math.min(cx, tipX), y: Math.min(cy, tipY),
+    w: Math.abs(tipX - cx), h: Math.abs(tipY - cy),
+    line: { color: t.colors.BERRY, width: 2.2 },
+    flipH: cx > tipX, flipV: cy > tipY,
+  });
+
+  // Hub ---------------------------------------------------------------
+  const hubR = 0.11;
+  slide.addShape("ellipse", {
+    x: cx - hubR, y: cy - hubR, w: hubR * 2, h: hubR * 2,
+    fill: { color: t.colors.INK },
+    line: { type: "none" },
+  });
+
+  // Value + target + delta stack --------------------------------------
+  const stackY = cy + 0.14;
+  slide.addText(valueFormat(value), {
+    x, y: stackY, w, h: 0.5,
+    fontFace: t.fonts.DISPLAY, fontSize: 22, color: t.colors.INK,
+    align: "center", valign: "top", margin: 0,
+  });
+
+  const tText = targetFormat
+    ? targetFormat(target)
+    : (higherIsBetter === false ? `Target: <${target}%` : `Target: ${target}`);
+  slide.addText(tText, {
+    x, y: stackY + 0.48, w, h: 0.24,
+    fontFace: t.fonts.DISPLAY, fontSize: 9, italic: true, color: t.colors.INK,
+    align: "center", valign: "top", margin: 0,
+  });
+
+  // Delta line — status-colored
+  const delta = value - target;
+  const statusGood = higherIsBetter === true ? (value >= target) :
+                     higherIsBetter === false ? (value <= target) :
+                     Math.abs(delta) / Math.max(1, target) < 0.25;
+  const deltaColor = statusGood ? t.colors.STEEL : t.colors.BERRY;
+  let deltaStr;
+  if (higherIsBetter === false) {
+    const below = target - value;
+    const sign = below >= 0 ? "-" : "+";
+    deltaStr = `${sign}${Math.abs(below).toFixed(1)} below target`;
+  } else {
+    const sign = delta >= 0 ? "+" : "";
+    const side = delta >= 0 ? "above" : "below";
+    deltaStr = `${sign}${delta.toFixed(1)} ${side} target`;
+  }
+  slide.addText(deltaStr, {
+    x, y: stackY + 0.75, w, h: 0.24,
+    fontFace: t.fonts.SANS, fontSize: 9, bold: true, color: deltaColor,
+    align: "center", valign: "top", margin: 0,
+  });
+}
 
 // ── Area-proportional sizing helper (Cleveland-correct bubble sizing) ──
 // value in [domain[0], domain[1]] → diameter in [range[0], range[1]], area-scaled.
@@ -676,6 +880,7 @@ module.exports = {
   drawFunnel,
   drawTreemap,
   drawHeatmap,
+  drawGauge,
   areaScale,
   resolveColor,
   formatTick,
